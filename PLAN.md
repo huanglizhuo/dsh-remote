@@ -450,7 +450,7 @@ M0 的产出是一份 1 页纸的结论：**哪条传输路可行、审批能不
 | 插件能 bind 端口、读到全局事件 | ✅ 8787 只绑 loopback，`ctx.on('agent/assistant-stream', {global:true})` 收到 start/chunk/end | `/v1/health`、`/v1/sessions/:id/live` |
 | 会话同源 | ✅ 列表里就是桌面那批 session（标题、cwd、running 一致），手机 prompt 走 `sessionController.prompt` 生成 `user-rpc` 消息 | `.exact/02-paired.png`、`06-reply.png` |
 | 手机发消息 → 桌面执行 → 回复 | ✅ 桌面 transcript 里同样出现该轮对话 | `ios-05-reply.png` |
-| Cloudflare Quick Tunnel | ✅ `https://juice-integrity-copyrights-detective.trycloudflare.com`，`/v1/snapshot` 0.32s，未带 token 401 | curl 实测 |
+| Cloudflare Quick Tunnel | ✅ `https://<quick-tunnel>.trycloudflare.com`，`/v1/snapshot` 0.32s，未带 token 401 | curl 实测 |
 | App 走 HTTPS 隧道配对 | ✅ iOS 直接填隧道地址即可（ATS 无需例外） | `ios-06-tunnel.png` |
 | 手机代答审批 | ✅ 手机上出现「Allow once / Deny」卡片，点 Allow 后 `approval.request()` 真的返回 `allowed-once`，点 Deny 返回 `rejected` | `approval-card.png`、`approval-allowed.png` |
 | 停止按钮 | ✅ 运行中标题栏出现停止方块，点掉后 `state.running` 变 false | `stop.png` |
@@ -477,7 +477,7 @@ M0 的产出是一份 1 页纸的结论：**哪条传输路可行、审批能不
 
 - bridge 自己拉起 `cloudflared tunnel --url http://127.0.0.1:8787`，从它的日志里读回 `https://*.trycloudflare.com`，`/v1/health` 的 `publicUrl` 就是它；进程退出 5s 后自动重启，插件卸载时 kill。
 - `GET /pair`（仅 loopback，带 `cf-connecting-ip` 一律 403）现在是一张二维码：内容是 `dshm://pair?u=<origin>&c=<六位码>`，下面还有地址和六位数字兜底。
-- **二维码本身验过**：qlmanage 把页面渲成 PNG，再用 Apple Vision（`VNDetectBarcodesRequest`）解出来是 `dshm://pair?u=https%3A%2F%2Fhighways-…trycloudflare.com&c=082255`，真机摄像头能读。
+- **二维码本身验过**：qlmanage 把页面渲成 PNG，再用 Apple Vision（`VNDetectBarcodesRequest`）解出来是 `dshm://pair?u=https%3A%2F%2F<quick-tunnel>.trycloudflare.com&c=082255`，真机摄像头能读。
 - App 加了 `/scan` 页：`getUserMedia(video, facingMode=environment)` + `exact-camera` 取景 + `detectedBarcodes(formats=["qr_code"])`；识别到就出「Pair with this Mac」。没有相机的地方（模拟器）可以粘同一个链接手动配对。
 - 端到端验过的是「链接 → 配对 → 切到隧道 → 会话列表」这一段（`.exact/scan-paired.png`、`scan-sessions.png`）；**摄像头那一段没验**，因为 iOS 模拟器没有摄像头，取景框停在「Opening the camera…」。真机第一次跑要重点看这个。
 - `verify ios`：3 个测试通过，深/浅色、两宽度、最大字号无溢出。
@@ -519,8 +519,8 @@ M0 的产出是一份 1 页纸的结论：**哪条传输路可行、审批能不
 - bridge 用 `/sbin/ifconfig` 找 utun 上的 CGNAT 地址（100.64/10）做 Tailscale IP —— **不能** spawn App Store 版 Tailscale 的 CLI（它是 GUI 包装，在 DSH/Electron 进程里报 `Tailscale.CLIError 3`），从接口表读最稳。检测到 IP 时 8787 绑 `0.0.0.0`（token 仍把关全部路由），否则 127.0.0.1。
 - 配对链接升级为 `dshm://pair?u=<tunnel>&d=<direct>&c=<code>`，`/v1/pairing` 多 `directUrl` 字段，QR 页同链接。
 - app `pairFromLink` 按 `[direct, tunnel]` 顺序尝试：任一路径收到 HTTP 应答就直接采信（错误码不会因为换路径变好），网络错误才落到下一个；全失败时报 lastError。
-- Mac 侧验证：`curl http://100.102.127.63:8787/v1/health` 直连 200；deep link 带 `d=`。
-- 手机侧实测（用户登录后）：重配对一次，app 日志显示全部 14 个请求都打 `http://100.102.127.63:8787`；发送→回复 OK。
+- Mac 侧验证：`curl http://100.102.x.x:8787/v1/health` 直连 200；deep link 带 `d=`。
+- 手机侧实测（用户登录后）：重配对一次，app 日志显示全部 14 个请求都打 `http://100.102.x.x:8787`；发送→回复 OK。
 - **关键验证**：`pkill cloudflared` 后（隧道完全死掉），直连路径不受影响——手机继续收发，「隧道已关：请只回复 STILL。」→ `STILL` 正常往返，Mac 侧 snapshot 确认。`/v1/live` 直连 200。
 - 结论：Tailscale 连接时配对 = 永不再重配；隧道只作为 tailnet 外的回落。
 - `verify ios` 3 测试 0 findings。

@@ -1,3 +1,7 @@
 target/
 .exact/
 .DS_Store
+
+# local toolchain & driving artifacts
+.bun/
+apps/mobile/.exact/
