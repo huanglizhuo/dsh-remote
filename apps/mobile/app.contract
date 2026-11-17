@@ -887,7 +887,7 @@ component Mobile
         if e.name == "sessions"
           column navigationKey=`${e.id}` navigationScroll="sessions-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
             row display="flex" flex-wrap="wrap" align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
-              text "DeepSeek" role="heading" aria-level=1 flex=1 testId="app-title"
+              text "DSHRemote" role="heading" aria-level=1 flex=1 testId="app-title"
               if signedIn
                 button press=openScan aria-label="Scan a pairing code" testId="scan-now"
                   image "symbol:photo"
