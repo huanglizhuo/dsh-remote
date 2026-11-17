@@ -1,3 +1,5 @@
 target/
 .exact/
 node_modules/
+!apps/mobile/node_modules/
+.DS_Store
