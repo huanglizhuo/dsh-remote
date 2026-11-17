@@ -23,8 +23,20 @@
   "deploy": {
     "store": {
       "web": "0",
-      "ios": "0"
-    }
+      "ios": "A",
+      "android": "A"
+    },
+    "channel": "prod",
+    "channels": {
+      "prod": "appdrop"
+    },
+    "signing": {
+      "key": "dsh-remote",
+      "keys": {
+        "dsh-remote": "cRO32Hjcqxo5KOSyHMMYF75BQF/AevhSOP3IOgouEXE="
+      }
+    },
+    "activate": "next-launch"
   },
   "background_color": "#ffffff",
   "theme_color": "#3d6df2",
