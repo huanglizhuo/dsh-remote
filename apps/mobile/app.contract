@@ -358,6 +358,7 @@ component Mobile
   // Optimistic send: the bubble appears instantly; the server row replaces it.
   state echoText = ""
   state verbose = false persist
+  state lang = "" persist
   state lastFork = ""
   state effortModel = ""
   state effortProvider = ""
@@ -691,6 +692,10 @@ component Mobile
     if not pending(goalSet)
       send goalSet = setGoalAction(server, token, selected, verb)
 
+  action setLang(code: string)
+    setLocale(code)
+    lang = code
+
   action setVerbose(on: bool)
     verbose = on
 
@@ -808,7 +813,7 @@ component Mobile
         send uploaded = uploadPhoto(server, token, match f { case some(v) => v.path, case none => "" }, match f { case some(v) => v.name, case none => "" })
 
   action afterUpload
-    let r = match uploaded { case some(v) => v, case none => UploadReply(ok=false, id="", name="", error="上传没有回应") }
+    let r = match uploaded { case some(v) => v, case none => UploadReply(ok=false, id="", name="", error=t("attach.noReply")) }
     attachErr = r.ok ? "" : r.error
     if r.ok
       attachId = r.id
@@ -893,59 +898,59 @@ component Mobile
                   image "symbol:photo"
                 button press=startNew aria-label="New session" testId="new-session" disabled=pending(created)
                   image "symbol:add"
-              button press=toSettings aria-label="设置" testId="settings"
+              button press=toSettings aria-label=t("settings.title") testId="settings"
                 image "symbol:settings"
             row gap=6 align-items="baseline" padding="2px 16px 4px 16px" testId="version-line"
               text "dsh-remote 0.1.0" font-size="0.62rem" color="-exact-tertiary-label"
-              text "· 通道 prod · AppDrop" font-size="0.62rem" color="-exact-tertiary-label"
+              text t("ota.channel") font-size="0.62rem" color="-exact-tertiary-label"
             match snap.balance
               case some(bal)
                 if not bal.signedOut and not bal.failed and bal.wallets.length > 0
                   row gap=6 align-items="baseline" padding="2px 16px 6px 16px" testId="balance-line"
-                    text "余额" font-size="0.69rem" color="-exact-tertiary-label"
+                    text t("balance.label") font-size="0.69rem" color="-exact-tertiary-label"
                     for w in bal.wallets key=w.id
                       text `${w.currency == "CNY" ? "¥" : "$"}${w.text}` font-size="0.81rem" font-weight=600 color="text.ink"
                     for w in bal.bonus key=w.id
                       if w.text != "0.00"
-                        text `+赠 ${w.currency == "CNY" ? "¥" : "$"}${w.text}` font-size="0.69rem" color="-exact-secondary-label"
+                        text t("balance.bonus", cur=(w.currency == "CNY" ? "¥" : "$"), n=w.text) font-size="0.69rem" color="-exact-secondary-label"
               case none
                 text ""
             if not signedIn
               column padding=24 gap=12 align-items="center"
                 text "Pair with your Mac to see its sessions." font="-exact-subheadline" color="-exact-secondary-label"
                 button press=toSettings buttonStyle="filled" testId="pair-now"
-                  text "配对"
+                  text t("pair.pair")
                 row press=openScan align-items="center" min-height=44 padding="0 8px" testId="scan-now"
-                  text "扫 Mac 上的码" color="-exact-secondary-label" font="-exact-subheadline"
+                  text t("list.scanMac") color="-exact-secondary-label" font="-exact-subheadline"
             if signedIn and not everOk and not linkStale
               column padding=24 gap=10 align-items="center" testId="connecting"
                 image "assets/whale.svg" width=44 height=44 color="brand.fill"
-                text "正在连接你的 Mac…" font="-exact-subheadline" color="-exact-secondary-label"
+                text t("pair.connecting") font="-exact-subheadline" color="-exact-secondary-label"
             if picking
               column gap=2 padding="6px 12px" background-color="surface.card" border-radius=12
-                text "在哪个工作区新建…" font-size="0.69rem" color="-exact-tertiary-label"
+                text t("ws.picker") font-size="0.69rem" color="-exact-tertiary-label"
                 for w in workspaces key=w
                   row press=newSession(w) gap=8 align-items="center" padding="9px 6px" testId=`ws-${w}`
                     text w flex=1 min-width=0 font-size="0.75rem" line-clamp=1
                     image "symbol:forward-chevron" font-size="0.55rem" color="-exact-tertiary-label"
                 row press=newSession("") gap=8 align-items="center" padding="9px 6px" testId="ws-default"
-                  text "默认工作区" flex=1 min-width=0 font-size="0.75rem"
+                  text t("ws.default") flex=1 min-width=0 font-size="0.75rem"
                 row press=cancelNew justify-content="center" padding="6px 0" testId="ws-cancel"
-                  text "取消" font-size="0.75rem" color="-exact-secondary-label"
+                  text t("common.cancel") font-size="0.75rem" color="-exact-secondary-label"
             if linkStale
               column padding=16 gap=10 align-items="center" background-color="surface.card"
-                text "连不上你的 Mac。如果隧道重启过，地址会变。" font="-exact-footnote" color="-exact-secondary-label" text-align="center" testId="stale-note"
+                text t("pair.unreachable") font="-exact-footnote" color="-exact-secondary-label" text-align="center" testId="stale-note"
                 row gap=10
                   button press=openScan buttonStyle="filled" testId="relink"
-                    text "重新配对"
+                    text t("pair.repair")
                   if alt != "" and alt != server
                     button press=useAlt buttonStyle="bordered" testId="use-alt"
-                      text "切换备用线路"
+                      text t("pair.useAlt")
                   button press=toSettings buttonStyle="bordered" testId="relink-settings"
-                    text "设置"
+                    text t("settings.title")
             else
               row padding="8px 16px 0 16px"
-                input value=query input=editQuery placeholder="搜索会话" aria-label="Search sessions" testId="search" flex=1 min-width=0 min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
+                input value=query input=editQuery placeholder=t("list.searchPlaceholder") aria-label="Search sessions" testId="search" flex=1 min-width=0 min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
               list id="sessions-list" appearance="none" flex=1 min-height=0 testId="session-list"
                 for s in shown key=s.id
                   column gap=0
@@ -959,18 +964,18 @@ component Mobile
                           if s.pinned
                             image "symbol:pin" font-size="0.55rem" color="brand.fill"
                           text (s.title == "" ? "Untitled session" : s.title) font="-exact-body" testId=`session-${s.id}`
-                        text (s.running ? "运行中…" : s.cwd) font="-exact-footnote" color=(s.running ? "brand.fill" : "-exact-secondary-label")
+                        text (s.running ? t("list.running") : s.cwd) font="-exact-footnote" color=(s.running ? "brand.fill" : "-exact-secondary-label")
                       if s.when != ""
                         text s.when font="-exact-footnote" color="-exact-tertiary-label"
                       image "symbol:forward-chevron" color="-exact-tertiary-label"
                 if shown.length == 0
-                  text (query.trim() == "" ? "No sessions yet." : "没有匹配的会话。") font="-exact-footnote" color="-exact-secondary-label" padding=24 text-align="center" testId="no-matches"
+                  text (query.trim() == "" ? "No sessions yet." : t("list.noMatch")) font="-exact-footnote" color="-exact-secondary-label" padding=24 text-align="center" testId="no-matches"
         if e.name == "chat"
           column navigationKey=`${e.id}` navigationScroll="transcript" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" padding-top="var(--exact-safe-area-inset-top)"
             row align-items="center" padding="8px 16px" gap=4 background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text (snap.sessionTitle == "" ? "会话" : snap.sessionTitle) font-size="1.06rem" font-weight=600 line-clamp=1 overflow-wrap="break-word" flex=1 min-width=0 testId="chat-title"
+              text (snap.sessionTitle == "" ? t("chat.title") : snap.sessionTitle) font-size="1.06rem" font-weight=600 line-clamp=1 overflow-wrap="break-word" flex=1 min-width=0 testId="chat-title"
               button press=openMore aria-label="Session menu" testId="chat-menu"
                 image "symbol:ellipsis"
               if snap.running
@@ -979,26 +984,26 @@ component Mobile
             if (nearTop and snap.hasMore) or loadingMore or moreErr != ""
               row justify-content="center" align-items="center" height=36 background-color="surface.page"
                 if loadingMore
-                  text "正在载入…" font-size="0.8rem" color="-exact-secondary-label" testId="more-loading"
+                  text t("list.loading") font-size="0.8rem" color="-exact-secondary-label" testId="more-loading"
                 else
                   if moreErr != ""
                     button press=loadEarlier buttonStyle="bordered" testId="more-retry"
-                      text "载入失败 · 重试"
+                      text t("list.loadFailed")
                   else
                     button press=loadEarlier buttonStyle="bordered" testId="load-earlier"
-                      text "载入更早的消息"
+                      text t("list.loadEarlier")
             list id="transcript" testId="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=(stick) scroll=moved flex=1 min-height=0
               for m in thread key=m.id
                 column padding="4px 0" testId=`row-${m.id}`
                   if m.role == "seed"
                     row gap=8 align-items="center" padding="6px 12px" testId="seed-row"
                       hr flex=1
-                      text "⟲ 继承自原会话的历史" font-size="0.69rem" color="-exact-tertiary-label"
+                      text t("seed.inherited") font-size="0.69rem" color="-exact-tertiary-label"
                       hr flex=1
                   if m.role == "compact"
                     column gap=4 padding="2px 12px"
                       row press=toggleProcess(m.id) gap=8 align-items="center" testId=`compact-${m.seq}`
-                        text (m.shadow > 0 ? `⟲ 上下文压缩 · 已折叠 ${m.folded} 项 · ${m.shadow >= 1000 ? `${floor(m.shadow / 1000)}k` : `${m.shadow}`} tokens` : `⟲ 上下文压缩 · 已折叠 ${m.folded} 项`) font-size="0.69rem" color="-exact-tertiary-label" flex=1
+                        text (m.shadow > 0 ? t("compact.tokens", n=m.folded, k=(m.shadow >= 1000 ? `${floor(m.shadow / 1000)}k` : `${m.shadow}`)) : t("compact.folded", n=m.folded)) font-size="0.69rem" color="-exact-tertiary-label" flex=1
                         text (openProcess == m.id ? "−" : "+") font-size="0.75rem" color="-exact-tertiary-label"
                       if openProcess == m.id
                         text m.text font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" padding="4px 0 4px 12px"
@@ -1023,17 +1028,17 @@ component Mobile
                           row gap=6 align-items="center" press=toggleProcess(m.id) testId=`process-${m.id}`
                             if m.usage == "" or m.running > 0
                               image "assets/whale.svg" width=14 height=14 color="brand.fill"
-                              text ((m.took > 0 ? `${m.tools} 步 · ${m.took >= 3600 ? `${floor(m.took / 3600)}小时` : m.took >= 60 ? `${floor(m.took / 60)}分` : `${m.took}秒`}` : `${m.tools} 步`)) font-size="0.75rem" color="-exact-secondary-label"
+                              text ((m.took > 0 ? `${t("meta.steps", n=m.tools)} · ${m.took >= 3600 ? t("meta.hrs", n=floor(m.took / 3600)) : m.took >= 60 ? t("meta.mins", n=floor(m.took / 60)) : t("meta.secs", n=m.took)}` : t("meta.steps", n=m.tools))) font-size="0.75rem" color="-exact-secondary-label"
                               text (match first(m.blocks.filter(b => b.kind == "tool" and b.status == "running")) { case some(b) => b.text, case none => "" }) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
                             else
                               image "symbol:checkmark" color="-exact-system-green"
                               if m.tools > 0
-                                text ((m.took > 0 ? `${m.tools} 步 · ${m.took >= 3600 ? `${floor(m.took / 3600)}小时` : m.took >= 60 ? `${floor(m.took / 60)}分` : `${m.took}秒`}` : `${m.tools} 步`)) font-size="0.75rem" color="-exact-secondary-label"
+                                text ((m.took > 0 ? `${t("meta.steps", n=m.tools)} · ${m.took >= 3600 ? t("meta.hrs", n=floor(m.took / 3600)) : m.took >= 60 ? t("meta.mins", n=floor(m.took / 60)) : t("meta.secs", n=m.took)}` : t("meta.steps", n=m.tools))) font-size="0.75rem" color="-exact-secondary-label"
                               else
-                                text "已深度思考" font-size="0.75rem" color="-exact-secondary-label"
+                                text t("chat.thought") font-size="0.75rem" color="-exact-secondary-label"
                                 if (openProcess == m.id or verbose) == false and m.plain != ""
                                   text (m.plain.length > 42 ? `${m.plain.slice(0, 42)}…` : m.plain) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
-                              text ((openProcess == m.id or verbose) ? "收起" : "展开") font-size="0.69rem" color="-exact-tertiary-label"
+                              text ((openProcess == m.id or verbose) ? t("common.collapse") : t("common.expand")) font-size="0.69rem" color="-exact-tertiary-label"
                         // Older turns arrive as text only (the window keeps their nodes out for size),
                         // so show that text rather than leaving the turn looking unanswered.
                         if m.plain != "" and m.blocks.filter(b => b.kind == "text" or (b.kind == "md" and b.nodes.length > 0)).length == 0
@@ -1108,7 +1113,7 @@ component Mobile
                           if b.kind == "tool" and b.child != ""
                             row press=openChild(b.child) gap=6 align-items="center" padding="4px 0" testId=`child-${b.id}`
                               image "symbol:people" font-size="0.6rem" color="brand.fill"
-                              text "打开子代理会话" font-size="0.69rem" color="brand.fill"
+                              text t("chat.openSubagent") font-size="0.69rem" color="brand.fill"
                           if b.kind == "tool" and (openProcess == m.id or verbose)
                             column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
                               row gap=6 align-items="center" press=toggleCall(b.callId) testId=`call-${b.callId}`
@@ -1133,7 +1138,7 @@ component Mobile
                                       text t.text font-size="0.81rem" color=(t.state == "completed" ? "-exact-tertiary-label" : "-exact-label") white-space="pre-wrap" flex=1 min-width=0
                               if b.files.length > 0
                                 column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
-                                  text "交付物" font-size="0.69rem" color="-exact-tertiary-label"
+                                  text t("chat.deliverables") font-size="0.69rem" color="-exact-tertiary-label"
                                   for f in b.files key=f.id
                                     column gap=2
                                       text f.path font-size="0.75rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" color="text.ink" line-clamp=2 testId=`file-${f.id}`
@@ -1144,7 +1149,7 @@ component Mobile
                                   text b.question font-size="0.81rem" font-weight=600 white-space="pre-wrap"
                                   for o in b.options key=o.id
                                     text o.text font-size="0.75rem" color="-exact-secondary-label"
-                                  text "在 Mac 上回答 —— 手机能看，暂时不能回。" font-size="0.69rem" color="-exact-tertiary-label"
+                                  text t("question.onMac") font-size="0.69rem" color="-exact-tertiary-label"
                               if b.callId == openCall and b.images.length > 0
                                 for im in b.images key=im.id
                                   image `${server}/v1/attachments/${im.att}?t=${token}` width=220 height=(im.w > 0 and im.h > 0 ? 220 * im.h / im.w : 160) border-radius=8 testId=`timg-${im.id}`
@@ -1158,7 +1163,7 @@ component Mobile
                                 if not (dCallId == b.callId and dResult != "") and b.result != ""
                                   text b.result font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=18
                                 if b.lazy and dCallId != b.callId
-                                  text "载入中…" font-size="0.69rem" color="-exact-tertiary-label"
+                                  text t("common.loadingMore") font-size="0.69rem" color="-exact-tertiary-label"
                                 for d in b.diffs key=d.id
                                   column gap=2
                                     text `${d.path}  +${d.added} −${d.removed}` font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
@@ -1176,17 +1181,17 @@ component Mobile
                         if m.text != ""
                           row justify-content="flex-end" gap=8
                             row press=copyBody(m.text) padding="6px 8px" border-radius=8 testId=`copy-${m.seq}`
-                              text "复制" font-size="0.69rem" color="-exact-tertiary-label"
+                              text t("common.copy") font-size="0.69rem" color="-exact-tertiary-label"
                             row press=forkHere(m.seq) padding="6px 8px" border-radius=8 testId=`forkhere-${m.seq}`
-                              text "分叉" font-size="0.69rem" color="-exact-tertiary-label"
+                              text t("chat.fork") font-size="0.69rem" color="-exact-tertiary-label"
                         if m.usage != ""
                           text m.usage font-size="0.69rem" color="-exact-tertiary-label"
                         if m.interrupted
-                          text "已中断 —— 本轮被手动停止" font-size="0.69rem" color="-exact-secondary-label" testId=`stopped-${m.seq}`
+                          text t("chat.interrupted") font-size="0.69rem" color="-exact-secondary-label" testId=`stopped-${m.seq}`
                         if m.interrupted and lastUserText != "" and snap.running == false
                           row press=resendLast padding="6px 12px" border-radius=10 background-color="surface.card-strong" testId=`retry-${m.seq}`
                             image "symbol:refresh" font-size="0.7rem" color="brand.fill"
-                            text "重发这条" font-size="0.75rem" color="brand.fill"
+                            text t("chat.resend") font-size="0.75rem" color="brand.fill"
                     else
                       if m.role == "result"
                         text m.text font="-exact-caption1" color="-exact-secondary-label" padding="2px 16px" white-space="pre-wrap" line-clamp=6
@@ -1194,7 +1199,7 @@ component Mobile
               row justify-content="flex-end" padding="4px 0" testId="echo-row"
                 column gap=2 align-items="flex-end" max-width="78%"
                   text echoText padding="8px 12px" border-radius=18 white-space="pre-wrap" overflow-wrap="break-word" background-color="brand.fill" color="ink.on-brand" opacity=0.55
-                  text "发送中…" font-size="0.62rem" color="-exact-tertiary-label"
+                  text t("chat.sending") font-size="0.62rem" color="-exact-tertiary-label"
             // DSH's RunningStatus slot: after the turn's content, the whale tail
             // and `深度求索中，用时 …` — always present while the session runs,
             // whether text is streaming, tools run, or the turn predates a reload.
@@ -1211,7 +1216,7 @@ component Mobile
                 case none
                   text ""
             if snap.messages.length == 0 and snap.streamText == ""
-              text "问点什么 —— 这就是 Mac 上那个会话。" font="-exact-footnote" color="-exact-secondary-label" padding="4px 16px"
+              text t("chat.hint") font="-exact-footnote" color="-exact-secondary-label" padding="4px 16px"
             if snap.question != none
               column gap=6 padding="10px 12px" background-color="surface.card" border-radius=12
                 if qHint != ""
@@ -1229,21 +1234,21 @@ component Mobile
                   row press=sendPicked(qId, qQid) justify-content="center" padding="8px 14px" border-radius=10 background-color=(picked == "" ? "surface.card-strong" : "brand.fill") opacity=(picked == "" or pending(replied) ? 0.6 : 1) testId="question-answer"
                     text "Answer" font-size="0.81rem" font-weight=600 color=(picked == "" ? "text.ink" : "ink.on-brand")
                 row press=answerOnMac(qId) justify-content="center" padding="6px 0"
-                  text "改为在 Mac 上回答" font-size="0.69rem" color="-exact-tertiary-label" testId="question-skip"
+                  text t("question.onMacShort") font-size="0.69rem" color="-exact-tertiary-label" testId="question-skip"
             if snap.queue.length > 0
               column gap=4 padding="8px 12px" background-color="surface.card" border-radius=12
-                text `已排队，下一轮发送 · ${snap.queue.length}` font-size="0.69rem" color="-exact-tertiary-label"
+                text t("queue.queued", n=snap.queue.length) font-size="0.69rem" color="-exact-tertiary-label"
                 for qd in snap.queue key=qd.id
                   if queueEdit == qd.id
                     column gap=6
-                      input value=queueDraft input=queueInput placeholder="改写这条排队消息" aria-label="Edit queued message" testId=`queue-input-${qd.id}` flex=1 min-width=0 min-height=44 background-color="surface.card-strong" border-radius=10 padding="10px 12px"
+                      input value=queueDraft input=queueInput placeholder=t("queue.editPlaceholder") aria-label="Edit queued message" testId=`queue-input-${qd.id}` flex=1 min-width=0 min-height=44 background-color="surface.card-strong" border-radius=10 padding="10px 12px"
                       row gap=10
                         row press=saveQueue(qd.id) padding="8px 12px" border-radius=10 background-color="brand.fill" testId=`queue-save-${qd.id}`
-                          text "保存" font-size="0.75rem" color="ink.on-brand"
+                          text t("common.save") font-size="0.75rem" color="ink.on-brand"
                         row press=steerQueue(qd.id, queueDraft) padding="8px 12px" border-radius=10 background-color="surface.card-strong" testId=`queue-steer-${qd.id}`
-                          text "立即发送" font-size="0.75rem" color="text.ink"
+                          text t("queue.steer") font-size="0.75rem" color="text.ink"
                         row press=cancelQueueEdit padding="8px 12px" testId=`queue-cancel-${qd.id}`
-                          text "取消" font-size="0.75rem" color="-exact-secondary-label"
+                          text t("common.cancel") font-size="0.75rem" color="-exact-secondary-label"
                   else
                     row gap=8 align-items="center"
                       row press=editQueue(qd.id, qd.text) flex=1 min-width=0 padding="2px 0" testId=`queue-edit-${qd.id}`
@@ -1265,7 +1270,7 @@ component Mobile
             if snap.approvals.length > 0
               column gap=6 padding="10px 12px" background-color="surface.card" border-radius=12
                 for a in snap.approvals key=a.id
-                  text "Mac 在等你的审批" font="-exact-footnote" color="-exact-secondary-label"
+                  text t("approval.title") font="-exact-footnote" color="-exact-secondary-label"
                   text a.toolName font="-exact-body" font-weight=600 testId=`approval-${a.id}`
                   if a.plan != ""
                     text a.plan font-size="0.8rem" color="text.ink" white-space="pre-wrap" line-clamp=24 testId=`approval-plan-${a.id}`
@@ -1278,11 +1283,11 @@ component Mobile
                   text `Hands back to the Mac in ${a.expiresIn}s` font-size="0.69rem" color="-exact-tertiary-label"
                   row gap=8 align-items="center"
                     row press=decide(a.id, true) padding="8px 14px" border-radius=10 background-color=(pending(answered) ? "surface.card-strong" : "brand.fill") opacity=(pending(answered) ? 0.6 : 1) testId=`allow-${a.id}`
-                      text "允许一次" font-size="0.81rem" font-weight=600 color="ink.on-brand"
+                      text t("approval.allowOnce") font-size="0.81rem" font-weight=600 color="ink.on-brand"
                     row press=decide(a.id, false) padding="8px 14px" border-radius=10 background-color="surface.card-strong" opacity=(pending(answered) ? 0.6 : 1) testId=`deny-${a.id}`
-                      text "拒绝" font-size="0.81rem"
+                      text t("approval.deny") font-size="0.81rem"
                     row press=alwaysAllow(a.id) padding="8px 10px" border-radius=10 testId=`always-${a.id}`
-                      text "总是允许" font-size="0.75rem" color="-exact-secondary-label"
+                      text t("approval.always") font-size="0.75rem" color="-exact-secondary-label"
             if draft.startsWith("/")
               column gap=2 padding="0 12px 6px 12px"
                 for c in slashMatches key=c.name
@@ -1307,19 +1312,19 @@ component Mobile
                 row gap=8 align-items="center" padding="6px 8px" background-color="surface.card-strong" border-radius=12 testId="attach-chip"
                   image "symbol:photo" font-size="0.75rem" color="brand.fill"
                   if attachId != ""
-                    text (pending(uploaded) ? `正在上传 ${attachName == "" ? "图片" : attachName}…` : attachName) font-size="0.75rem" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
+                    text (pending(uploaded) ? t("attach.uploading", name=(attachName == "" ? t("attach.image") : attachName)) : attachName) font-size="0.75rem" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
                   if attachErr != ""
                     text attachErr font-size="0.75rem" color="-exact-system-red" flex=1 min-width=0 line-clamp=1
                   if attachId != "" and not pending(uploaded)
                     column width=28 height=28 align-items="center" justify-content="center" press=clearAttach testId="attach-clear"
                       image "symbol:close" font-size="0.62rem" color="-exact-tertiary-label"
               if attachId == "" and attachErr == ""
-                input type="file" accept="image/*" id="imgpick" change=pickedImage width=1 height=1 opacity=0 aria-label="添加图片" testId="imgpick"
+                input type="file" accept="image/*" id="imgpick" change=pickedImage width=1 height=1 opacity=0 aria-label=t("attach.add") testId="imgpick"
               row gap=8 align-items="flex-end" padding="8px 8px 8px 14px" background-color="surface.card" border-radius=24 border-color="surface.card" border-width=1 border-style="solid"
                 if attachId == ""
                   column width=32 height=32 align-items="center" justify-content="center" press=pickPhoto testId="attach"
                     image "symbol:photo" font-size="1rem" color=(pending(uploaded) ? "-exact-tertiary-label" : "-exact-secondary-label")
-                textarea value=draft input=editDraft field-sizing="content" max-height=140 border="none" background-color="surface.card" flex=1 min-width=0 placeholder="发消息…" aria-label="Message" testId="draft"
+                textarea value=draft input=editDraft field-sizing="content" max-height=140 border="none" background-color="surface.card" flex=1 min-width=0 placeholder=t("composer.placeholder") aria-label="Message" testId="draft"
                 column width=36 height=36 align-items="center" justify-content="center" background-color=(canSend ? "brand.fill" : "surface.card-strong") border-radius=18 press=send testId="send"
                   image "symbol:send" color=(canSend ? "ink.on-brand" : "-exact-tertiary-label")
               if snap.sessionModel != ""
@@ -1330,13 +1335,13 @@ component Mobile
                   if snap.running
                     text "working…" font-size="0.69rem" color="-exact-tertiary-label"
                     button press=pickMode(true) aria-label="Send into this turn" testId="mode-steer"
-                      text "本轮" font-size="0.69rem" color=(steer ? "brand.fill" : "-exact-tertiary-label")
+                      text t("chat.thisTurn") font-size="0.69rem" color=(steer ? "brand.fill" : "-exact-tertiary-label")
                     button press=pickMode(false) aria-label="Send as the next turn" testId="mode-queue"
-                      text "下一轮" font-size="0.69rem" color=(steer ? "-exact-tertiary-label" : "brand.fill")
+                      text t("chat.nextTurn") font-size="0.69rem" color=(steer ? "-exact-tertiary-label" : "brand.fill")
         if e.name == "models"
           column navigationKey=`${e.id}` navigationScroll="model-list" navigationBar="none" navigationPresentation="modal" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" padding-top="var(--exact-safe-area-inset-top)"
             row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
-              text "模型" role="heading" aria-level=1 flex=1
+              text t("models.title") role="heading" aria-level=1 flex=1
               button press=leave id="models-cancel" aria-label="Close" testId="models-cancel"
                 image "symbol:close"
               text "Next turn" font="-exact-footnote" color="-exact-secondary-label"
@@ -1368,9 +1373,9 @@ component Mobile
             row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text "查找" role="heading" aria-level=1 flex=1
+              text t("find.title") role="heading" aria-level=1 flex=1
             row padding="8px 16px"
-              input value=findQ input=editFind placeholder="在会话里查找" aria-label="在会话里查找" testId="find-field" flex=1 min-width=0 min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
+              input value=findQ input=editFind placeholder=t("find.placeholder") aria-label=t("find.placeholder") testId="find-field" flex=1 min-width=0 min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
             list id="find-list" appearance="none" flex=1 min-height=0
               for h in findRows key=h.id
                 column gap=2
@@ -1385,7 +1390,7 @@ component Mobile
             row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text "权限" role="heading" aria-level=1 flex=1
+              text t("perm.title") role="heading" aria-level=1 flex=1
             row height="1px" width="100%"
             list id="perm-list" appearance="none" virtualized=true flex=1 min-height=0
               for o in snap.permissionOptions key=o.value
@@ -1401,41 +1406,41 @@ component Mobile
             row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text "会话" role="heading" aria-level=1 flex=1
+              text t("chat.title") role="heading" aria-level=1 flex=1
             list id="more-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
                 column gap=4 padding="4px 0" testId="stats-block"
-                  text "统计" font-size="0.69rem" color="-exact-tertiary-label"
-                  text `${snap.stats.turns} 回合 · ${snap.stats.steps} 步` font-size="0.81rem"
-                  text `${stIn} 进 · ${stOut} 出 · ${stCache} 缓存命中` font-size="0.75rem" color="-exact-secondary-label"
+                  text t("stats.title") font-size="0.69rem" color="-exact-tertiary-label"
+                  text t("stats.summary", turns=snap.stats.turns, steps=snap.stats.steps) font-size="0.81rem"
+                  text t("stats.tokens", i=stIn, o=stOut, c=stCache) font-size="0.75rem" color="-exact-secondary-label"
                   if snap.stats.inTok + snap.stats.cacheRead > 0
-                    text `缓存命中率 ${floor(100 * snap.stats.cacheRead / (snap.stats.inTok + snap.stats.cacheRead))}%` font-size="0.75rem" color="-exact-secondary-label"
+                    text t("stats.hitRate", n=floor(100 * snap.stats.cacheRead / (snap.stats.inTok + snap.stats.cacheRead))) font-size="0.75rem" color="-exact-secondary-label"
               section
                 row gap=8 align-items="center"
-                  text "名称" flex=1
-                  input value=renameDraft input=editRename placeholder="会话名称" aria-label="会话名称" testId="rename-field"
+                  text t("rename.nameLabel") flex=1
+                  input value=renameDraft input=editRename placeholder=t("rename.placeholder") aria-label=t("rename.placeholder") testId="rename-field"
               section
                 button press=renameSession disabled=(renameDraft.trim() == "" or pending(renamed)) testId="rename-save"
-                  text (pending(renamed) ? "保存中…" : "重命名")
+                  text (pending(renamed) ? t("common.saving") : t("session.rename"))
               section
                 button press=openPermissions testId="perm-open"
-                  text "权限"
+                  text t("perm.title")
               section
                 button press=openFind testId="find-open"
-                  text "在会话里查找"
+                  text t("find.placeholder")
               section
                 button press=setFlag("pin", not snap.pinned) disabled=pending(flagged) testId="pin-toggle"
-                  text (snap.pinned ? "取消置顶" : "置顶这个会话")
+                  text (snap.pinned ? t("session.unpin") : t("session.pin"))
               section
                 button press=setFlag("archive", not snap.archived) disabled=pending(flagged) testId="archive-toggle"
-                  text (snap.archived ? "取消归档" : "归档")
+                  text (snap.archived ? t("session.unarchive") : t("session.archive"))
               if snap.goalId != ""
                 section
                   button press=goalAction(snap.goalPhase == "paused" ? "resume" : "pause") disabled=pending(goalSet) testId="goal-toggle"
-                    text (snap.goalPhase == "paused" ? "恢复目标" : "暂停目标")
+                    text (snap.goalPhase == "paused" ? t("goal.resume") : t("goal.pause"))
                 section
                   button press=goalAction("clear") disabled=pending(goalSet) testId="goal-clear"
-                    text "清除目标"
+                    text t("goal.clear")
               if snap.subagents.length > 0
                 section
                   for a in snap.subagents key=a.id
@@ -1444,21 +1449,21 @@ component Mobile
                         text `Subagent · ${a.label}`
               section
                 button press=openJobs testId="jobs-open"
-                  text `后台任务${snap.jobs.length > 0 ? ` (${snap.jobs.length})` : ""}`
+                  text (snap.jobs.length > 0 ? t("jobs.titleN", n=snap.jobs.length) : t("jobs.title"))
               section
                 button press=forkSession disabled=pending(forked) testId="fork"
-                  text (pending(forked) ? "分叉中…" : "从这里分叉")
+                  text (pending(forked) ? t("chat.forking") : t("chat.forkHere"))
               section
-                text "分叉会把当前会话已有的轮次复制成一个新会话，放在 Mac 上。" font="-exact-footnote" color="-exact-secondary-label"
+                text t("chat.forkHint") font="-exact-footnote" color="-exact-secondary-label"
         if e.name == "jobs"
           column navigationKey=`${e.id}` navigationScroll="jobs-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
             row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text "后台任务" role="heading" aria-level=1 flex=1
+              text t("jobs.title") role="heading" aria-level=1 flex=1
             list id="jobs-list" appearance="none" flex=1 min-height=0
               if snap.jobs.length == 0
-                text "这个会话没有后台任务。" font="-exact-footnote" color="-exact-secondary-label" padding="16px"
+                text t("jobs.none") font="-exact-footnote" color="-exact-secondary-label" padding="16px"
               for j in snap.jobs key=j.id
                 column gap=4 padding="12px 16px"
                   row gap=8 align-items="center"
@@ -1497,61 +1502,72 @@ component Mobile
               column gap=8 align-items="stretch" width="100%"
                 input value=scanNote input=editScanNote placeholder="dshm://pair?…" aria-label="Pairing link" testId="scan-link" min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
                 button press=connect(scanNote) disabled=(scanNote == "" or pending(scanned)) testId="scan-manual"
-                  text "配对"
+                  text t("pair.pair")
               if linkError != ""
                 text linkError font="-exact-footnote" color="-exact-system-red" text-align="center" testId="scan-error"
         if e.name == "open"
           column navigationKey=`${e.id}` navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" align-items="center" justify-content="center" padding=24 gap=12
             image "assets/whale.svg" width=44 height=44 color="brand.fill"
             if match deepLinked { case some(r) => r.ok, case none => false }
-              text "已连接到你的 Mac" font="-exact-headline" text-align="center" testId="open-done"
+              text t("open.connected") font="-exact-headline" text-align="center" testId="open-done"
               row press=goHome padding="12px 24px" border-radius=12 background-color="brand.fill" testId="open-enter"
-                text "进入会话列表" font-size="0.94rem" font-weight=600 color="ink.on-brand"
+                text t("open.enter") font-size="0.94rem" font-weight=600 color="ink.on-brand"
             else
-              text (pending(deepLinked) or openUrl == "" ? "正在通过链接配对…" : "收到配对链接") font="-exact-headline" text-align="center" testId="open-title"
+              text (pending(deepLinked) or openUrl == "" ? t("open.pairing") : t("open.received")) font="-exact-headline" text-align="center" testId="open-title"
               if deepError != ""
                 text deepError font="-exact-footnote" color="-exact-system-red" text-align="center" testId="open-error"
               row press=connect(openUrl) padding="13px 20px" border-radius=12 background-color=(pending(deepLinked) ? "surface.card-strong" : "brand.fill") opacity=(pending(deepLinked) ? 0.6 : 1) testId="open-retry"
-                text "重试配对" font-size="0.94rem" font-weight=600 color="ink.on-brand"
+                text t("open.retry") font-size="0.94rem" font-weight=600 color="ink.on-brand"
               row press=toSettings padding="12px 20px" min-height=44 testId="open-manual"
-                text "改为手动配对" font-size="0.87rem" color="-exact-secondary-label"
+                text t("open.manual") font-size="0.87rem" color="-exact-secondary-label"
         if e.name == "settings"
           column navigationKey=`${e.id}` navigationScroll="settings-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
             row align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text "连接" role="heading" aria-level=1 flex=1
+              text t("pair.connect") role="heading" aria-level=1 flex=1
             list id="settings-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               if devices.devices.length > 0
                 section
-                  text "已配对的设备" font-size="0.69rem" color="-exact-tertiary-label" padding="6px 16px 2px 16px"
+                  text t("devices.title") font-size="0.69rem" color="-exact-tertiary-label" padding="6px 16px 2px 16px"
                   for dv in devices.devices key=dv.id
                     row gap=8 align-items="center" padding="8px 4px" testId=`device-${dv.id}`
                       column flex=1 min-width=0 gap=2
-                        text (dv.mine ? `${dv.name}（本机）` : dv.name) font-size="0.81rem" line-clamp=1
+                        text (dv.mine ? t("devices.thisMac", name=dv.name) : dv.name) font-size="0.81rem" line-clamp=1
                             text dv.when font-size="0.69rem" color="-exact-tertiary-label"
                       if not dv.mine
                         button press=revokeDevice(dv.id) disabled=pending(revoked) testId=`revoke-${dv.id}`
-                          text "移除" color="-exact-system-red" font-size="0.75rem"
+                          text t("devices.remove") color="-exact-system-red" font-size="0.75rem"
               section
                 row gap=8 align-items="center"
-                  text "默认展开过程" flex=1
+                  text t("settings.verbose") flex=1
                   input type="checkbox" switch checked=verbose change=setVerbose testId="verbose-toggle"
               section
-                row gap=8 align-items="center"
-                  text "服务器" flex=1
-                  input value=server input=editServer placeholder="https://…" aria-label="服务器" testId="server"
+                column gap=2
+                  row press=setLang("") gap=8 align-items="center" min-height=44 testId="lang-system"
+                    text (lang == "" ? "✓" : "") min-width="1rem" color="-exact-label" font-weight=600
+                    text t("lang.system") flex=1
+                  row press=setLang("zh-Hans") gap=8 align-items="center" min-height=44 testId="lang-zh"
+                    text (lang == "zh-Hans" ? "✓" : "") min-width="1rem" color="-exact-label" font-weight=600
+                    text "中文" flex=1
+                  row press=setLang("en") gap=8 align-items="center" min-height=44 testId="lang-en"
+                    text (lang == "en" ? "✓" : "") min-width="1rem" color="-exact-label" font-weight=600
+                    text "English" flex=1
               section
                 row gap=8 align-items="center"
-                  text "令牌" flex=1
-                  input value=token input=editToken placeholder="paste token" aria-label="令牌" testId="token"
+                  text t("pair.server") flex=1
+                  input value=server input=editServer placeholder="https://…" aria-label=t("pair.server") testId="server"
               section
                 row gap=8 align-items="center"
-                  text "配对码" flex=1
-                  input value=code input=editCode placeholder="6 digits" aria-label="配对码" testId="code"
+                  text t("pair.token") flex=1
+                  input value=token input=editToken placeholder="paste token" aria-label=t("pair.token") testId="token"
+              section
+                row gap=8 align-items="center"
+                  text t("pair.code") flex=1
+                  input value=code input=editCode placeholder="6 digits" aria-label=t("pair.code") testId="code"
               section
                 button press=pair disabled=(code.length != 6 or pending(paired)) testId="pair"
-                  text (pending(paired) ? "Pairing…" : "配对")
+                  text (pending(paired) ? "Pairing…" : t("pair.pair"))
               if pairError != ""
                 section
                   text pairError font="-exact-footnote" color="-exact-system-red" testId="pair-error"

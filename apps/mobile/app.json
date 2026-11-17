@@ -1,4 +1,5 @@
 {
+  "strings": { "base": "zh-Hans" },
   "$schema": "../../vendor/exact/scripts/app.schema.json",
   "name": "dsh-remote",
   "short_name": "dsh-remote",
