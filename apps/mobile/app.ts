@@ -56,7 +56,7 @@ type WireQueue = { id?: string; text?: string };
 type WireQuestionItem = { id?: string; header?: string; question?: string; detail?: string; multiSelect?: boolean; kind?: string; options?: { id?: string; label?: string; description?: string }[] };
 type WireQuestion = { id?: string; callId?: string | null; expiresIn?: number; questions?: WireQuestionItem[] };
 type WireSnapshot = {
-  balance?: { signedOut?: boolean; failed?: boolean; wallets?: { currency?: string; balance?: string }[]; bonus?: { currency?: string; balance?: string }[] } | null;
+  balance?: { signedOut?: boolean; failed?: boolean; wallets?: { currency?: string; balance?: string; text?: string }[]; bonus?: { currency?: string; balance?: string; text?: string }[] } | null;
   sessions?: WireSession[];
   session?: {
     id?: string;
@@ -423,9 +423,9 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
     balance: (() => {
       const b = body.balance
       if (!b || typeof b !== 'object') return null
-      const wallet = (w: { currency?: string; balance?: string } | null, id: string) => {
+      const wallet = (w: { currency?: string; balance?: string; text?: string } | null, id: string) => {
         const cur = typeof w?.currency === 'string' ? w.currency : ''
-        const raw = typeof w?.balance === 'string' ? w.balance : ''
+        const raw = typeof w?.balance === 'string' ? w.balance : (typeof w?.text === 'string' ? w.text : '')
         const num = Number.parseFloat(raw)
         return { id, currency: cur, text: Number.isFinite(num) ? num.toFixed(2) : raw }
       }
