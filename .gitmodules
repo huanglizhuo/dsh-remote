@@ -1,0 +1,3 @@
+[submodule "vendor/exact"]
+	path = vendor/exact
+	url = https://github.com/expo/exact
