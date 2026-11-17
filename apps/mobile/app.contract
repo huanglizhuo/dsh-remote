@@ -1,0 +1,1556 @@
+// DSH Mobile: the phone half of DeepSeek Harness. It reads one snapshot from the
+// bridge plugin on the Mac and sends prompts back into the same sessions the Mac shows.
+shape OptionRow
+  value: string
+  name: string
+  description: string
+shape SessionRow
+  id: string
+  pinned: bool
+  title: string
+  running: bool
+  cwd: string
+  updatedAt: number
+  group: string
+  first: bool
+  when: string
+
+shape MdItem
+  id: string
+  v: string
+  sign: string
+  mark: string
+  d: number
+  alt: string
+  w: number
+  h: number
+  dw: number
+  dh: number
+
+shape MdNode
+  id: string
+  t: string
+  v: string
+  lvl: number
+  lang: string
+  alt: string
+  w: number
+  h: number
+  head: string
+  items: MdItem[]
+  rows: MdItem[]
+
+shape DiffLine
+  id: string
+  sign: string
+  text: string
+
+shape DiffFile
+  id: string
+  path: string
+  added: number
+  removed: number
+  lines: DiffLine[]
+
+shape TodoItem
+  id: string
+  text: string
+  state: string
+
+shape ChoiceItem
+  id: string
+  text: string
+  description: string
+
+shape ImageRow
+  id: string
+  att: string
+  media: string
+  w: number
+  h: number
+  text: string
+
+shape BlockRow
+  id: string
+  kind: string
+  text: string
+  detail: string
+  status: string
+  result: string
+  nodes: MdNode[]
+  callId: string
+  child: string
+  icon: string
+  summary: string
+  args: string
+  lazy: bool
+  badge: string
+  diffs: DiffFile[]
+  todos: TodoItem[]
+  files: FileRow[]
+  question: string
+  options: ChoiceItem[]
+  att: string
+  media: string
+  w: number
+  h: number
+  images: ImageRow[]
+
+shape MessageRow
+  id: string
+  role: string
+  seq: number
+  text: string
+  plain: string
+  usage: string
+  tools: number
+  running: number
+  thought: bool
+  interrupted: bool
+  took: number
+  folded: number
+  shadow: number
+  blocks: BlockRow[]
+
+shape ModelRow
+  id: string
+  name: string
+  provider: string
+  current: bool
+  efforts: string[]
+
+shape ModelsReply
+  currentModel: string
+  currentProvider: string
+  currentEffort: string
+  models: ModelRow[]
+
+shape DevicesReply
+  devices: DeviceRow[]
+
+shape CommandsReply
+  commands: CommandRow[]
+
+shape CommandRow
+  name: string
+  description: string
+  hint: string
+
+shape ApprovalRow
+  id: string
+  toolName: string
+  reason: string
+  summary: string
+  args: string
+  plan: string
+  expiresIn: number
+
+shape DeviceRow
+  id: string
+  name: string
+  when: string
+  mine: bool
+
+shape WalletRow
+  id: string
+  currency: string
+  text: string
+
+shape BalanceView
+  signedOut: bool
+  failed: bool
+  wallets: WalletRow[]
+  bonus: WalletRow[]
+
+shape ActivityRow
+  label: string
+  detail: string
+
+shape StatsRow
+  turns: number
+  steps: number
+  inTok: number
+  outTok: number
+  cacheRead: number
+
+shape SubagentRow
+  id: string
+  label: string
+  sessionId: string
+
+shape JobRow
+  id: string
+  kind: string
+  label: string
+  status: string
+  progress: string
+  detail: string
+  when: string
+
+shape TodoRow
+  id: string
+  text: string
+  state: string
+
+shape FileRow
+  id: string
+  path: string
+  text: string
+
+shape QueueRow
+  id: string
+  text: string
+
+shape QuestionRow
+  id: string
+  callId: string
+  hint: string
+  ask: string
+  detail: string
+  qid: string
+  multi: bool
+  kind: string
+  options: ChoiceItem[]
+
+shape PlanStep
+  id: string
+  text: string
+  state: string
+
+shape PlanCard
+  title: string
+  steps: PlanStep[]
+
+shape Snapshot
+  listRev: string
+  rowsRev: string
+  hasMore: bool
+  plan: PlanCard
+  goal: string
+  goalId: string
+  pinned: bool
+  archived: bool
+  goalPhase: string
+  sessions: SessionRow[]
+  sessionTitle: string
+  sessionModel: string
+  sessionPermission: string
+  permissionOptions: OptionRow[]
+  running: bool
+  inherited: bool
+  runLabel: string
+  runActivity: option<ActivityRow>
+  stats: StatsRow
+  messages: MessageRow[]
+  approvals: ApprovalRow[]
+  queue: QueueRow[]
+  todos: TodoRow[]
+  jobs: JobRow[]
+  subagents: SubagentRow[]
+  question: option<QuestionRow>
+  streamText: string
+  streamReasoning: string
+  streamTools: BlockRow[]
+  balance: option<BalanceView>
+
+shape Rows
+  rev: string
+  hasMore: bool
+  rows: MessageRow[]
+
+shape CallDetail
+  callId: string
+  name: string
+  args: string
+  result: string
+
+shape Reply
+  ok: bool
+  error: string
+
+shape UploadReply
+  ok: bool
+  id: string
+  name: string
+  error: string
+
+shape PairReply
+  ok: bool
+  token: string
+  error: string
+
+shape Created
+  id: string
+  error: string
+
+shape PairLink
+  ok: bool
+  server: string
+  token: string
+  alt: string
+  error: string
+
+use getUserMedia, stopTrack, MediaStream, MediaStreamTrack, MediaTrackConstraints from "@exact/media-capture"
+use detectedBarcodes, BarcodeScan from "@exact/barcode-detection"
+
+
+keyframes pulse
+  50% opacity=0.35
+
+shape Viewport
+  prefersReducedMotion: bool
+
+routes nav
+  sessions "/"
+    chat "/chat/:id"
+      more "/chat/:id/more"
+      models "/chat/:id/models"
+      find "/chat/:id/find"
+      perm "/chat/:id/perm"
+      jobs "/chat/:id/jobs"
+    settings "/settings"
+    scan "/scan"
+    open "/open"
+
+component Mobile
+  state server = "http://127.0.0.1:8787" persist
+  state token = "" persist
+  // The path pairing did NOT pick (tunnel when Tailscale won, Tailscale when the
+  // tunnel won): offered as a one-tap switch when the live path goes dark.
+  state alt = "" persist
+  state code = ""
+  state draft = ""
+  state scanTrack = ""
+  state renameDraft = ""
+  state scanNote = ""
+  state query = ""
+  state take = 8
+  state openProcess = ""
+  state stick = true
+  state idlePolls = 0
+  state failsSinceOk = 0
+  // First poll after a cold start: until it lands (or fails twice) the list is
+  // empty by definition — say "connecting" instead of looking broken.
+  state everOk = false
+  // One automatic hop to the alternate path per stale episode; after that the
+  // banner leaves the choice to the person holding the phone.
+  state pinned = ""
+  state topKey = ""
+  state topOffset = 0.0
+  state loadedCount = 0
+  state loadingMore = false
+  state anchorKey = ""
+  state anchorPending = 0
+  state anchorOffset = 0.0
+  state topArmed = false
+  state nearTop = false
+  state moreErr = ""
+  state openCall = ""
+  state slashQ = ""
+  state findQ = ""
+  state steer = true
+  state picked = ""
+  state receipt = ""
+  state queueEdit = ""
+  state queueDraft = ""
+  state picking = false
+  state showTodos = false
+  // Optimistic send: the bubble appears instantly; the server row replaces it.
+  state echoText = ""
+  state verbose = false persist
+  state lastFork = ""
+  state effortModel = ""
+  state effortProvider = ""
+  // The small poll runs every tick; the rows fetch only when the transcript revision
+  // moves, so an idle session stops re-carrying its whole history.
+  state listRows: SessionRow[] = []
+  state listRev = ""
+  resource live = loadLive(server, token, selected, listRev) when token != "" as shape Snapshot else empty()
+  resource rows = loadRows(server, token, selected, take, live.rowsRev) when token != "" and selected != "" as shape Rows else empty()
+  derive snap = Snapshot(live, sessions=(listRows.length > 0 ? listRows : live.sessions), messages=(selected == "" ? [] : rows.rows), hasMore=(selected == "" ? false : rows.hasMore))
+  resource view = exactViewport() as shape Viewport
+  derive qAsk = match snap.question { case some(q) => q.ask, case none => "" }
+  derive qHint = match snap.question { case some(q) => q.hint, case none => "" }
+  derive qDetail = match snap.question { case some(q) => q.detail, case none => "" }
+  derive qMulti = match snap.question { case some(q) => q.multi, case none => false }
+  derive qId = match snap.question { case some(q) => q.id, case none => "" }
+  derive qQid = match snap.question { case some(q) => q.qid, case none => "" }
+  derive qOptions = match snap.question { case some(q) => q.options, case none => [] }
+  derive still = view.prefersReducedMotion
+  mutation detail as shape CallDetail
+  mutation sent as shape Reply refreshes live then afterSend
+  mutation uploaded as shape UploadReply then afterUpload
+  state attachId = ""
+  state attachName = ""
+  state attachErr = ""
+  mutation stopped as shape Reply refreshes live
+  mutation answered as shape Reply refreshes live
+  mutation decided as shape Reply refreshes live
+  mutation replied as shape Reply refreshes live
+  mutation skipped as shape Reply refreshes live
+  mutation dequeued as shape Reply refreshes live
+  mutation revoked as shape Reply refreshes devices
+  mutation queueSaved as shape Reply refreshes live
+  mutation goalSet as shape Reply refreshes live
+  mutation jobKilled as shape Reply refreshes live
+  mutation flagged as shape Reply refreshes live then afterFlag
+  mutation forkedHere as shape Created refreshes live
+  mutation paired as shape PairReply then afterPair
+  mutation opened as shape MediaStream then arm
+  mutation scanned as shape PairLink then afterLink
+  mutation trackStopped as shape MediaStreamTrack
+  mutation permissionSet as shape Reply refreshes live then afterPermission
+  mutation created as shape Created then afterCreate
+  mutation renamed as shape Created refreshes live then afterRename
+  mutation forked as shape Created then afterFork
+  // A QR holds the Mac's address and a fresh code, so one scan replaces typing both.
+  resource models = loadModels(server, token, selected) when selected != "" and top(nav).name == "models" as shape ModelsReply else empty()
+  resource devices = loadDevices(server, token) when top(nav).name == "settings" as shape DevicesReply else empty()
+  resource commands = loadCommands(server, token, selected) when selected != "" as shape CommandsReply else empty()
+  mutation chose as shape Reply refreshes live then afterModel
+  mutation executed as shape Reply refreshes live then afterExecuted
+  resource scan = detectedBarcodes(track=scanTrack, formats=["qr_code"], interval=200) when scanTrack != "" as shape BarcodeScan else empty()
+  derive backCamera = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some("environment"), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
+  derive selected = match stack(nav).filter(e => e.name == "chat").at(-1) { case some(e) => e.params.id, case none => "" }
+  derive signedIn = token != ""
+  derive sendError = match sent { case some(r) => r.error, case none => "" }
+  derive pairError = match paired { case some(r) => r.error, case none => "" }
+  derive linkError = match scanned { case some(r) => r.error, case none => "" }
+  // The first code the viewfinder reports; the person confirms it with one tap.
+  derive firstCode = scanTrack == "" ? "" : match first(scan.barcodes) { case some(b) => b.rawValue, case none => "" }
+  // A Quick Tunnel gets a new name on every start; the stored address then 530s.
+  derive dCallId = match detail { case some(d) => d.callId, case none => "" }
+  derive dArgs = match detail { case some(d) => d.args, case none => "" }
+  derive dResult = match detail { case some(d) => d.result, case none => "" }
+  derive linkStale = failsSinceOk >= 2
+  derive createdId = match created { case some(r) => r.id, case none => "" }
+  derive forkedId = match forked { case some(r) => r.id, case none => "" }
+  derive forkedHereId = match forkedHere { case some(r) => r.id, case none => "" }
+  derive cameraError = match failure(opened) { case some(f) => f.code == "NotAllowedError" ? "Camera access was refused. Allow it in Settings, or type the code instead." : `The camera did not open (${f.code}). Type the code instead.`, case none => "" }
+  derive effortOptions = match first(models.models.filter(m => m.id == effortModel)) { case some(m) => m.efforts, case none => [] }
+  // One entry per distinct workspace the Mac already has sessions in.
+  derive workspaces = snap.sessions.map(row => row.cwd).filter((c, i) => c != "" and snap.sessions.map(row => row.cwd).indexOf(c) == i)
+  derive stIn = (snap.stats.inTok >= 1000000 ? `${floor(snap.stats.inTok / 1000000)}M` : snap.stats.inTok >= 1000 ? `${floor(snap.stats.inTok / 1000)}k` : `${snap.stats.inTok}`)
+  derive stOut = (snap.stats.outTok >= 1000000 ? `${floor(snap.stats.outTok / 1000000)}M` : snap.stats.outTok >= 1000 ? `${floor(snap.stats.outTok / 1000)}k` : `${snap.stats.outTok}`)
+  derive stCache = (snap.stats.cacheRead >= 1000000 ? `${floor(snap.stats.cacheRead / 1000000)}M` : snap.stats.cacheRead >= 1000 ? `${floor(snap.stats.cacheRead / 1000)}k` : `${snap.stats.cacheRead}`)
+  derive todoDone = snap.todos.filter(t => t.state == "completed").length
+  derive todoTotal = snap.todos.length
+  derive canSend = draft.trim() != "" and not pending(sent) and selected != ""
+  // The settled transcript plus the attempt still streaming, so one `for` holds the list.
+  derive body = (snap.streamText == "" and snap.streamTools.length == 0 ? snap.messages : snap.messages.concat([MessageRow(
+      id="streaming", role="assistant",
+      seq=2147483000,
+      text=snap.streamText,
+      plain=snap.streamText,
+      usage="",
+      tools=snap.streamTools.length,
+      running=snap.streamTools.filter(t => t.status == "running").length,
+      thought=false,
+      interrupted=false,
+      took=0,
+      folded=0,
+      shadow=0,
+      blocks=[BlockRow(
+        child="", lazy=false, id="streaming-text", kind="text",
+      text=snap.streamText, detail="", status="", result="", nodes=[], callId="", icon="", summary="", args="", badge="", diffs=[], todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])].concat(snap.streamTools))]))
+  derive goalRow = (snap.goal == "" and snap.plan.steps.length == 0 ? [] : [MessageRow(
+      id="goal", role="goal",
+      seq=-1,
+      text=snap.goal,
+      plain=snap.goal,
+      usage="",
+      tools=0,
+      running=0,
+      thought=false,
+      interrupted=false,
+      took=0,
+      folded=0,
+      shadow=0,
+      blocks=snap.plan.steps.map(step => BlockRow(
+          child="", lazy=false, id=step.id, kind="plan",
+      text=step.text, detail="", status=step.state, result="", nodes=[], callId="", icon="", summary="", args="", badge="", diffs=[], todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])))])
+  // A fork child: desktop's InheritedHistory separator at the transcript top.
+  derive seedRow = (snap.inherited and snap.messages.length > 0 ? [MessageRow(id="seed", role="seed", seq=0, text="", plain="", usage="", tools=0, running=0, thought=false, interrupted=false, took=0, folded=0, shadow=0, blocks=[])] : [])
+  derive thread = seedRow.concat(goalRow.concat(body))
+  derive matchRows = snap.messages.filter(m => findQ.trim() != "" and m.text.toLowerCase().includes(findQ.trim().toLowerCase()))
+  derive findRows = [MessageRow(id="find-note", role="note", seq=0, plain="", tools=0, running=0, thought=false, interrupted=false, took=0, folded=0, shadow=0, text=(`${matchRows.length} ${matchRows.length == 1 ? "match" : "matches"} in the ${snap.messages.length} ${snap.messages.length == 1 ? "message" : "messages"} loaded here. Older messages load with "Load earlier".`), usage="", blocks=[])].concat(matchRows)
+  derive slashMatches = commands.commands.filter(c => ("/" + c.name).startsWith(draft.trim().toLowerCase()) and draft.trim() != "/" + c.name)
+  derive lastId = match snap.messages.at(-1) { case some(m) => m.id, case none => "" }
+  // Entering a session lands on the newest content: the tail of the last message when the
+  // turn has already answered, or the start of the pending prompt while it is still running.
+  derive lastUserText = (match snap.messages.filter(m => m.role == "user").at(-1) { case some(u) => u.text, case none => "" })
+  derive anchor = match snap.messages.at(-1) { case some(m) => m.role == "user" ? m.id : m.id, case none => "" }
+  derive anchorEnd = match snap.messages.at(-1) { case some(m) => m.role != "user", case none => false }
+  derive shown = snap.sessions.filter(s => query.trim() == "" or (s.title == "" ? "untitled" : s.title).toLowerCase().includes(query.trim().toLowerCase()) or s.cwd.toLowerCase().includes(query.trim().toLowerCase()))
+
+  task tick mount
+    every(700, poll)
+
+  // A dshm:// link the system handed the app: the /open route fires this once per link.
+  // It never writes nav (a change task may not touch its gate); the view offers the way in.
+  task openPair when top(nav).name == "open" key=top(nav).id
+    change(openLink)
+
+  derive openUrl = searchParam(top(nav), "u")
+  derive deepError = match deepLinked { case some(r) => r.error, case none => "" }
+  mutation deepLinked as shape PairLink then afterDeep
+  action openLink
+    if openUrl != "" and not pending(deepLinked)
+      send deepLinked = pairFromLink(openUrl)
+  action afterDeep
+    if match deepLinked { case some(r) => r.ok, case none => false }
+      token = match deepLinked { case some(r) => r.token, case none => "" }
+      server = match deepLinked { case some(r) => r.server, case none => server }
+      alt = match deepLinked { case some(r) => r.alt, case none => "" }
+  // The direct path died (Tailscale quit, network changed): swap to the fallback
+  // in one tap. Swapping keeps the way back if the tunnel is the dead one.
+  action useAlt
+    if alt != "" and alt != server
+      server = alt
+      alt = ""
+      failsSinceOk = 0
+  action goHome
+    nav = go(nav, "/")
+
+  action jumpLatest
+    if lastId != ""
+      scrollIntoView("transcript", lastId, block="start", behavior="smooth")
+      stick = true
+      pinned = selected
+  action poll
+    // 700 ms while a turn is running, ~2.8 s when idle: a phone on LTE does not
+    // need to re-read the same list three times a second.
+    let nextFails = match failure(live) { case some(f) => failsSinceOk + 1, case none => 0 }
+    failsSinceOk = nextFails
+    if echoText != "" and lastUserText == echoText
+      echoText = ""
+    // Direct path dark? Swap to the alternate (keeping the way back). Toggling
+    // every two failures probes both paths while either may be restarting —
+    // a one-shot latch could strand us on a tunnel that died after the swap.
+    if nextFails >= 2 and alt != "" and alt != server
+      let oldPath = server
+      server = alt
+      alt = oldPath
+      failsSinceOk = 0
+    if nextFails == 0
+      everOk = true
+    refresh live
+    if live.sessions.length > 0
+      listRows = live.sessions
+    if live.listRev != ""
+      listRev = live.listRev
+    if snap.running or snap.streamText != ""
+      idlePolls = 0
+    else
+      if idlePolls >= 3
+        idlePolls = 0
+      else
+        idlePolls = idlePolls + 1
+    if forkedHereId != "" and forkedHereId != lastFork
+      lastFork = forkedHereId
+      receipt = "Forked from here — the copy is at the top of the list."
+    let grew = snap.messages.length != loadedCount
+    if grew
+      loadingMore = false
+    loadedCount = snap.messages.length
+    // Prepend compensation, applied on the tick the window grows and once more on the
+    // next tick: the virtual list lays the new rows out a frame later.
+    let armed = grew and anchorKey != ""
+    if anchorKey != "" and (armed or anchorPending > 0)
+      scrollIntoView("transcript", anchorKey, offset=anchorOffset, behavior="instant")
+      let left = (armed ? 2 : anchorPending) - 1
+      if left == 0
+        anchorKey = ""
+      anchorPending = left
+    if pinned != selected and anchor != "" and top(nav).name == "chat"
+      if anchorEnd
+        scrollIntoView("transcript", anchor, block="end", behavior="instant")
+      else
+        scrollIntoView("transcript", anchor, block="start", behavior="instant")
+      pinned = selected
+    if scanTrack != "" and top(nav).name != "scan"
+      send trackStopped = stopTrack(track=scanTrack)
+      scanTrack = ""
+  action editServer(v: string)
+    server = v
+  action editToken(v: string)
+    token = v.trim()
+  action editCode(v: string)
+    code = v.trim()
+  action leave
+    pinned = ""
+    nav = back(nav)
+  action editDraft(v: string)
+    draft = v
+  action editScanNote(v: string)
+    scanNote = v
+  action toggleCall(id: string)
+    let opening = openCall != id
+    openCall = opening ? id : ""
+    if opening and selected != ""
+      send detail = loadCall(server, token, selected, id)
+  action startNew
+    picking = true
+
+  action cancelNew
+    picking = false
+
+  action newSession(cwd: string)
+    if not pending(created)
+      send created = createSession(server, token, cwd)
+  action afterCreate
+    picking = false
+    if createdId != ""
+      nav = push(nav, path("chat", createdId))
+  action openMore
+    renameDraft = snap.sessionTitle
+    nav = push(nav, path("more", selected))
+  action forkSession
+    if selected != "" and not pending(forked)
+      send forked = forkSession(server, token, selected)
+  action afterFork
+    if forkedId != ""
+      nav = go(nav, path("chat", forkedId))
+  action renameSession
+    if selected != "" and renameDraft.trim() != "" and not pending(renamed)
+      send renamed = renameSession(server, token, selected, renameDraft.trim())
+  action afterRename
+    if match renamed { case some(r) => r.id != "", case none => false }
+      nav = back(nav)
+  action editRename(v: string)
+    renameDraft = v
+  action open(id: string)
+    take = 8
+    stick = true
+    loadingMore = false
+    moreErr = ""
+    anchorKey = ""
+    loadedCount = 0
+    topArmed = false
+    nearTop = false
+    nav = push(nav, path("chat", id))
+  action openChild(id: string)
+    nav = push(nav, path("chat", id))
+
+  action openJobs
+    nav = push(nav, path("jobs", selected))
+
+  action openPermissions
+    nav = push(nav, path("perm", selected))
+  action choosePermission(v: string)
+    if not pending(permissionSet)
+      send permissionSet = setPermission(server, token, selected, v)
+  action afterPermission
+    if match permissionSet { case some(r) => r.error, case none => "" } == ""
+      nav = back(nav)
+  action openFind
+    nav = push(nav, path("find", selected))
+  action editFind(v: string)
+    findQ = v
+  action openModels
+    nav = push(nav, path("models", selected))
+  action chooseModel(provider: string, model: string, efforts: string[])
+    if efforts.length > 0
+      effortModel = model
+      effortProvider = provider
+    else
+      pickModel(provider, model, "")
+
+  action pickModel(provider: string, model: string, effort: string)
+    send chose = setModel(server, token, selected, provider, model, effort)
+  action backToModels
+    effortModel = ""
+
+  action afterModel
+    nav = back(nav)
+  action copyBody(v: string)
+    copyText(v)
+  action runCommand(name: string, hint: string)
+    if hint == ""
+      draft = ""
+      slashQ = name
+      send executed = runSessionCommand(server, token, selected, name, "")
+    else
+      draft = "/" + name + " "
+  action killJob(jobId: string)
+    if not pending(jobKilled)
+      send jobKilled = killJob(server, token, selected, jobId)
+
+  action setFlag(flag: string, on: bool)
+    if not pending(flagged)
+      send flagged = setSessionFlag(server, token, selected, flag, on)
+
+  action forkHere(seq: number)
+    if not pending(forkedHere)
+      send forkedHere = forkFrom(server, token, selected, seq)
+
+  action afterFlag
+    nav = back(nav)
+
+  action goalAction(verb: string)
+    if not pending(goalSet)
+      send goalSet = setGoalAction(server, token, selected, verb)
+
+  action setVerbose(on: bool)
+    verbose = on
+
+  action toggleTodos
+    showTodos = not showTodos
+
+  action dismissReceipt
+    receipt = ""
+
+  action editQuery(v: string)
+    query = v
+  action loadFrom(key: string, offset: number)
+    if snap.hasMore and not loadingMore
+      stick = false
+      loadingMore = true
+      moreErr = ""
+      anchorKey = (key == "" or key == "goal" or key == "more" ? "" : key)
+      anchorOffset = offset
+      anchorPending = 0
+      take = min(take + 8, 60)
+  action loadEarlier
+    loadFrom(topKey, topOffset)
+  action moved(x: number, y: number, e: ScrollEvent)
+    // The values this event carries, bound before anything reads them: writes land at the end of an action.
+    let raw = match e.firstVisibleKey { case some(v) => v, case none => "" }
+    // The pinned bar rows ("more", "goal") are not messages: anchoring on them
+    // restores to the very top, which reads as "the list jumped to the oldest".
+    let synthetic = raw == "more" or raw == "goal"
+    let firstReal = match first(snap.messages) { case some(m) => m.id, case none => "" }
+    let k = synthetic ? firstReal : raw
+    let off = synthetic ? 0.0 : e.firstVisibleOffset
+    let armed = topArmed
+    let armAgain = e.scrollTop > 200
+    let reachTop = e.scrollTop < 80
+    topKey = k
+    topOffset = off
+    // Following the end is a consequence of being at the end, not a mode to remember.
+    stick = (e.scrollHeight - e.scrollTop - e.clientHeight) <= 24
+    nearTop = e.scrollTop < 120
+    // Armed stays armed while scrolling up: it used to be re-derived from
+    // "scrollTop > 200" on every event, so creeping up past 200 disarmed the
+    // trigger and reaching the top did nothing. It now only clears after a load.
+    let willLoad = (armed or armAgain) and reachTop and pinned == selected and snap.hasMore and not loadingMore
+    if willLoad
+      loadFrom(k, off)
+      topArmed = false
+    else
+      topArmed = armed or armAgain
+  action toggleProcess(id: string)
+    openProcess = (openProcess == id ? "" : id)
+  action follow(url: string)
+    nav = go(nav, url)
+  action toSettings
+    nav = push(nav, "/settings")
+  action revokeDevice(id: string)
+    if not pending(revoked)
+      send revoked = revokeDevice(server, token, id)
+
+  action back
+    nav = back(nav)
+  action pair
+    if code.length == 6 and not pending(paired)
+      send paired = pairDevice(server, code)
+  action afterPair
+    if match paired { case some(r) => r.ok, case none => false }
+      token = match paired { case some(r) => r.token, case none => "" }
+      code = ""
+      nav = back(nav)
+  action openScan
+    scanNote = ""
+    send opened = getUserMedia(video=true, videoConstraints=backCamera)
+    nav = push(nav, "/scan")
+  // The camera answered; a scan screen that was left while it asked stops the track.
+  action arm
+    match opened
+      case some(s)
+        let track = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+        if top(nav).name == "scan"
+          scanTrack = track
+        else if track != ""
+          send trackStopped = stopTrack(track=track)
+      case none
+        scanTrack = ""
+  action connect(raw: string)
+    if not pending(scanned)
+      send scanned = pairFromLink(raw)
+  action afterLink
+    if match scanned { case some(r) => r.ok, case none => false }
+      server = match scanned { case some(r) => r.server, case none => server }
+      token = match scanned { case some(r) => r.token, case none => "" }
+      alt = match scanned { case some(r) => r.alt, case none => "" }
+      if scanTrack != ""
+        send trackStopped = stopTrack(track=scanTrack)
+      scanTrack = ""
+      nav = go(nav, "/")
+  action pickMode(v: bool)
+    steer = v
+  // Retry a cancelled turn: send the last user message again as a fresh prompt.
+  action resendLast
+    if lastUserText != "" and not pending(executed)
+      echoText = lastUserText
+      send executed = sendPrompt(server, token, selected, lastUserText, false, "")
+
+  action send
+    if canSend
+      echoText = draft.trim()
+      send sent = sendPrompt(server, token, selected, draft.trim(), steer and snap.running, attachId)
+
+  // The photo picker's answer lands here; the upload runs while the composer stays usable.
+  action pickedImage(files: Picked[])
+    attachErr = ""
+    if files.length > 0
+      if files.length > 0 and not pending(uploaded)
+        let f = files.at(0)
+        send uploaded = uploadPhoto(server, token, match f { case some(v) => v.path, case none => "" }, match f { case some(v) => v.name, case none => "" })
+
+  action afterUpload
+    let r = match uploaded { case some(v) => v, case none => UploadReply(ok=false, id="", name="", error="上传没有回应") }
+    attachErr = r.ok ? "" : r.error
+    if r.ok
+      attachId = r.id
+      attachName = r.name
+
+  action clearAttach
+    attachId = ""
+    attachName = ""
+    attachErr = ""
+
+  action pickPhoto
+    showPicker("imgpick")
+  action afterExecuted
+    let r = match executed { case some(v) => v, case none => Reply(ok=false, error="") }
+    receipt = (r.ok ? "✓ " : "✗ ") + r.error
+    if not r.ok
+      echoText = ""
+
+  action afterSend
+    if sendError == ""
+      draft = ""
+      attachId = ""
+      attachName = ""
+  action stop
+    if selected != "" and not pending(stopped)
+      send stopped = cancelRun(server, token, selected)
+  action decide(id: string, allow: bool)
+    if not pending(answered)
+      send answered = respondApproval(server, token, id, allow, false)
+
+  action alwaysAllow(id: string)
+    if not pending(decided)
+      send decided = respondApproval(server, token, id, true, true)
+
+  // A single-select question is answered by the tap; a multi-select one needs its own confirm.
+  action pickOption(qid: string, questionId: string, label: string, multi: bool)
+    if multi
+      picked = (picked == "" ? label : `${picked}|${label}`)
+    else
+      if not pending(replied)
+        send replied = answerQuestion(server, token, qid, questionId, label)
+
+  action sendPicked(qid: string, questionId: string)
+    if picked != "" and not pending(replied)
+      send replied = answerQuestion(server, token, qid, questionId, picked)
+      picked = ""
+
+  action answerOnMac(qid: string)
+    if not pending(skipped)
+      send skipped = skipQuestion(server, token, qid)
+
+  action dropQueued(itemId: string)
+    if not pending(dequeued)
+      send dequeued = dropQueued(server, token, selected, itemId)
+
+  // QueueDock parity: rewrite a queued message in place, or steer it into the
+  // running turn right now.
+  action editQueue(itemId: string, text: string)
+    queueEdit = itemId
+    queueDraft = text
+  action queueInput(v: string)
+    queueDraft = v
+  action saveQueue(itemId: string)
+    if queueDraft != "" and not pending(queueSaved)
+      send queueSaved = queueItem(server, token, selected, itemId, "edit", queueDraft)
+  action steerQueue(itemId: string, text: string)
+    if text != "" and not pending(queueSaved)
+      send queueSaved = queueItem(server, token, selected, itemId, "steer", text)
+  action cancelQueueEdit
+    queueEdit = ""
+    queueDraft = ""
+
+  view
+    main navigationKey=`${top(nav).id}` navigate=follow interactive-widget="resizes-content" testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "sessions"
+          column navigationKey=`${e.id}` navigationScroll="sessions-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
+            row display="flex" flex-wrap="wrap" align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
+              text "DeepSeek" role="heading" aria-level=1 flex=1 testId="app-title"
+              if signedIn
+                button press=openScan aria-label="Scan a pairing code" testId="scan-now"
+                  image "symbol:photo"
+                button press=startNew aria-label="New session" testId="new-session" disabled=pending(created)
+                  image "symbol:add"
+              button press=toSettings aria-label="设置" testId="settings"
+                image "symbol:settings"
+            match snap.balance
+              case some(bal)
+                if not bal.signedOut and not bal.failed and bal.wallets.length > 0
+                  row gap=6 align-items="baseline" padding="2px 16px 6px 16px" testId="balance-line"
+                    text "余额" font-size="0.69rem" color="-exact-tertiary-label"
+                    for w in bal.wallets key=w.id
+                      text `${w.currency == "CNY" ? "¥" : "$"}${w.text}` font-size="0.81rem" font-weight=600 color="text.ink"
+                    for w in bal.bonus key=w.id
+                      if w.text != "0.00"
+                        text `+赠 ${w.currency == "CNY" ? "¥" : "$"}${w.text}` font-size="0.69rem" color="-exact-secondary-label"
+              case none
+                text ""
+            if not signedIn
+              column padding=24 gap=12 align-items="center"
+                text "Pair with your Mac to see its sessions." font="-exact-subheadline" color="-exact-secondary-label"
+                button press=toSettings buttonStyle="filled" testId="pair-now"
+                  text "配对"
+                row press=openScan align-items="center" min-height=44 padding="0 8px" testId="scan-now"
+                  text "扫 Mac 上的码" color="-exact-secondary-label" font="-exact-subheadline"
+            if signedIn and not everOk and not linkStale
+              column padding=24 gap=10 align-items="center" testId="connecting"
+                image "assets/whale.svg" width=44 height=44 color="brand.fill"
+                text "正在连接你的 Mac…" font="-exact-subheadline" color="-exact-secondary-label"
+            if picking
+              column gap=2 padding="6px 12px" background-color="surface.card" border-radius=12
+                text "在哪个工作区新建…" font-size="0.69rem" color="-exact-tertiary-label"
+                for w in workspaces key=w
+                  row press=newSession(w) gap=8 align-items="center" padding="9px 6px" testId=`ws-${w}`
+                    text w flex=1 min-width=0 font-size="0.75rem" line-clamp=1
+                    image "symbol:forward-chevron" font-size="0.55rem" color="-exact-tertiary-label"
+                row press=newSession("") gap=8 align-items="center" padding="9px 6px" testId="ws-default"
+                  text "默认工作区" flex=1 min-width=0 font-size="0.75rem"
+                row press=cancelNew justify-content="center" padding="6px 0" testId="ws-cancel"
+                  text "取消" font-size="0.75rem" color="-exact-secondary-label"
+            if linkStale
+              column padding=16 gap=10 align-items="center" background-color="surface.card"
+                text "连不上你的 Mac。如果隧道重启过，地址会变。" font="-exact-footnote" color="-exact-secondary-label" text-align="center" testId="stale-note"
+                row gap=10
+                  button press=openScan buttonStyle="filled" testId="relink"
+                    text "重新配对"
+                  if alt != "" and alt != server
+                    button press=useAlt buttonStyle="bordered" testId="use-alt"
+                      text "切换备用线路"
+                  button press=toSettings buttonStyle="bordered" testId="relink-settings"
+                    text "设置"
+            else
+              row padding="8px 16px 0 16px"
+                input value=query input=editQuery placeholder="搜索会话" aria-label="Search sessions" testId="search" flex=1 min-width=0 min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
+              list id="sessions-list" appearance="none" flex=1 min-height=0 testId="session-list"
+                for s in shown key=s.id
+                  column gap=0
+                    if s.first and query.trim() == ""
+                      text s.group font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding="14px 16px 4px 16px" testId=`group-${s.id}`
+                    row press=open(s.id) gap=12 align-items="center" padding="12px 16px"
+                      // Leading status dot, like the desktop sidebar: filled while a turn runs, dim otherwise.
+                      image "symbol:circle" font-size="0.45rem" color=(s.running ? "brand.fill" : "-exact-tertiary-label") animation=(s.running and not still ? "pulse 1.2s ease-in-out infinite" : "none") testId=`run-${s.id}`
+                      column flex=1 min-width=0 gap=2
+                        row gap=5 align-items="center"
+                          if s.pinned
+                            image "symbol:pin" font-size="0.55rem" color="brand.fill"
+                          text (s.title == "" ? "Untitled session" : s.title) font="-exact-body" testId=`session-${s.id}`
+                        text (s.running ? "运行中…" : s.cwd) font="-exact-footnote" color=(s.running ? "brand.fill" : "-exact-secondary-label")
+                      if s.when != ""
+                        text s.when font="-exact-footnote" color="-exact-tertiary-label"
+                      image "symbol:forward-chevron" color="-exact-tertiary-label"
+                if shown.length == 0
+                  text (query.trim() == "" ? "No sessions yet." : "没有匹配的会话。") font="-exact-footnote" color="-exact-secondary-label" padding=24 text-align="center" testId="no-matches"
+        if e.name == "chat"
+          column navigationKey=`${e.id}` navigationScroll="transcript" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" padding-top="var(--exact-safe-area-inset-top)"
+            row align-items="center" padding="8px 16px" gap=4 background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text (snap.sessionTitle == "" ? "会话" : snap.sessionTitle) font-size="1.06rem" font-weight=600 line-clamp=1 overflow-wrap="break-word" flex=1 min-width=0 testId="chat-title"
+              button press=openMore aria-label="Session menu" testId="chat-menu"
+                image "symbol:ellipsis"
+              if snap.running
+                button press=stop aria-label="Stop" testId="stop"
+                  image "symbol:stop-fill"
+            if (nearTop and snap.hasMore) or loadingMore or moreErr != ""
+              row justify-content="center" align-items="center" height=36 background-color="surface.page"
+                if loadingMore
+                  text "正在载入…" font-size="0.8rem" color="-exact-secondary-label" testId="more-loading"
+                else
+                  if moreErr != ""
+                    button press=loadEarlier buttonStyle="bordered" testId="more-retry"
+                      text "载入失败 · 重试"
+                  else
+                    button press=loadEarlier buttonStyle="bordered" testId="load-earlier"
+                      text "载入更早的消息"
+            list id="transcript" testId="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=(stick) scroll=moved flex=1 min-height=0
+              for m in thread key=m.id
+                column padding="4px 0" testId=`row-${m.id}`
+                  if m.role == "seed"
+                    row gap=8 align-items="center" padding="6px 12px" testId="seed-row"
+                      hr flex=1
+                      text "⟲ 继承自原会话的历史" font-size="0.69rem" color="-exact-tertiary-label"
+                      hr flex=1
+                  if m.role == "compact"
+                    column gap=4 padding="2px 12px"
+                      row press=toggleProcess(m.id) gap=8 align-items="center" testId=`compact-${m.seq}`
+                        text (m.shadow > 0 ? `⟲ 上下文压缩 · 已折叠 ${m.folded} 项 · ${m.shadow >= 1000 ? `${floor(m.shadow / 1000)}k` : `${m.shadow}`} tokens` : `⟲ 上下文压缩 · 已折叠 ${m.folded} 项`) font-size="0.69rem" color="-exact-tertiary-label" flex=1
+                        text (openProcess == m.id ? "−" : "+") font-size="0.75rem" color="-exact-tertiary-label"
+                      if openProcess == m.id
+                        text m.text font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" padding="4px 0 4px 12px"
+                  if m.role == "error"
+                    text m.text font-size="0.72rem" color="-exact-system-red" padding="2px 12px" white-space="pre-wrap" testId=`err-${m.seq}`
+                  if m.role == "goal"
+                    column gap=2
+                      if m.text != ""
+                        text "Goal" font-size="0.69rem" color="-exact-tertiary-label"
+                        text m.text font-size="0.75rem" color="-exact-secondary-label" line-clamp=3 testId="goal-line"
+                      for b in m.blocks key=b.id
+                        row gap=6 align-items="flex-start"
+                          text (b.status == "completed" ? "●" : b.status == "in_progress" ? "◐" : "○") font-size="0.69rem" color=(b.status == "completed" ? "-exact-system-green" : b.status == "in_progress" ? "-exact-system-orange" : "-exact-tertiary-label")
+                          text b.text font-size="0.75rem" color=(b.status == "completed" ? "-exact-tertiary-label" : "-exact-label") flex=1 min-width=0
+                  if m.role == "user"
+                    row justify-content="flex-end"
+                      text m.text padding="8px 12px" border-radius=18 max-width="78%" white-space="pre-wrap" overflow-wrap="break-word" background-color="brand.fill" color="ink.on-brand"
+                  else
+                    if m.role == "assistant"
+                      column gap=6 padding="2px 12px"
+                        if m.tools > 0 or m.thought
+                          row gap=6 align-items="center" press=toggleProcess(m.id) testId=`process-${m.id}`
+                            if m.usage == "" or m.running > 0
+                              image "assets/whale.svg" width=14 height=14 color="brand.fill"
+                              text ((m.took > 0 ? `${m.tools} 步 · ${m.took >= 3600 ? `${floor(m.took / 3600)}小时` : m.took >= 60 ? `${floor(m.took / 60)}分` : `${m.took}秒`}` : `${m.tools} 步`)) font-size="0.75rem" color="-exact-secondary-label"
+                              text (match first(m.blocks.filter(b => b.kind == "tool" and b.status == "running")) { case some(b) => b.text, case none => "" }) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                            else
+                              image "symbol:checkmark" color="-exact-system-green"
+                              if m.tools > 0
+                                text ((m.took > 0 ? `${m.tools} 步 · ${m.took >= 3600 ? `${floor(m.took / 3600)}小时` : m.took >= 60 ? `${floor(m.took / 60)}分` : `${m.took}秒`}` : `${m.tools} 步`)) font-size="0.75rem" color="-exact-secondary-label"
+                              else
+                                text "已深度思考" font-size="0.75rem" color="-exact-secondary-label"
+                                if (openProcess == m.id or verbose) == false and m.plain != ""
+                                  text (m.plain.length > 42 ? `${m.plain.slice(0, 42)}…` : m.plain) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                              text ((openProcess == m.id or verbose) ? "收起" : "展开") font-size="0.69rem" color="-exact-tertiary-label"
+                        // Older turns arrive as text only (the window keeps their nodes out for size),
+                        // so show that text rather than leaving the turn looking unanswered.
+                        if m.plain != "" and m.blocks.filter(b => b.kind == "text" or (b.kind == "md" and b.nodes.length > 0)).length == 0
+                          text m.plain white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
+                        for b in m.blocks key=b.id
+                          if b.kind == "text"
+                            text b.text white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
+                          if b.kind == "md"
+                            column gap=8
+                              for n in b.nodes key=n.id
+                                column gap=2
+                                  if n.t == "p"
+                                    text n.v white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
+                                  if n.t == "h"
+                                    text n.v font-size=(n.lvl <= 2 ? "1.06rem" : "0.94rem") font-weight=600 white-space="pre-wrap" overflow-wrap="break-word"
+                                  if n.t == "ul"
+                                    column gap=3
+                                      for it in n.items key=it.id
+                                        row gap=6 align-items="flex-start"
+                                          text it.mark font-size="0.875rem" color="-exact-secondary-label"
+                                          text it.v font-size="0.94rem" white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
+                                  if n.t == "ol"
+                                    column gap=3
+                                      for it in n.items key=it.id
+                                        row gap=6 align-items="flex-start"
+                                          text it.mark font-size="0.875rem" color="-exact-secondary-label"
+                                          text it.v font-size="0.94rem" white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
+                                  if n.t == "table"
+                                    column gap=0 background-color="surface.card-strong" border-radius=8 padding="6px 8px"
+                                      text n.head font-size="0.75rem" font-weight=600 white-space="pre-wrap" overflow-wrap="break-word"
+                                      for row in n.rows key=row.id
+                                        hr
+                                        text row.v font-size="0.75rem" white-space="pre-wrap" overflow-wrap="break-word"
+                                  if n.t == "diff"
+                                    column gap=0 background-color="surface.card" border-radius=10 padding="8px 10px" testId=`md-diff-${n.id}`
+                                      for dl in n.items key=dl.id
+                                        text dl.v font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.72rem" white-space="pre-wrap" overflow-wrap="break-word" color=(dl.sign == "+" ? "-exact-system-green" : dl.sign == "-" ? "-exact-system-red" : "-exact-secondary-label")
+                                  if n.t == "code"
+                                    column gap=4 background-color="surface.card" border-radius=10 padding="10px 12px"
+                                      if n.lang != ""
+                                        text n.lang font-size="0.69rem" color="-exact-tertiary-label"
+                                      text n.v font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.81rem" white-space="pre-wrap" overflow-wrap="break-word"
+                                  if n.t == "quote"
+                                    row background-color="surface.card" border-radius=8 padding="8px 10px"
+                                      text n.v font-size="0.875rem" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
+                                  if n.t == "hr"
+                                    hr
+                                  if n.t == "img"
+                                    column gap=2
+                                      if n.v.startsWith("http")
+                                        image n.v width=260 height=(n.w > 0 and n.h > 0 ? 260 * n.h / n.w : 170) border-radius=10 testId=`mimg-${n.id}`
+                                      else
+                                        image `${server}/v1/file?p=${n.v}&s=${selected}&t=${token}` width=260 height=(n.w > 0 and n.h > 0 ? 260 * n.h / n.w : 170) border-radius=10 testId=`mimg-${n.id}`
+                                      if n.alt != ""
+                                        text n.alt font-size="0.69rem" color="-exact-tertiary-label"
+                                  // A run of images pages sideways: one card plus a peek of the next,
+                                  // snapping card by card (a "peek carousel").
+                                  if n.t == "gallery"
+                                    scroll scroll-snap-type="x mandatory" height=268 width="100%" testId=`gallery-${n.id}`
+                                      row gap=8 padding="0 12px" align-items="flex-start"
+                                        for it in n.items key=it.id
+                                          column gap=2 width=(it.dw > 0 ? it.dw : 320) scroll-snap-align="start" scroll-snap-stop="always"
+                                            if it.v.startsWith("http")
+                                              image it.v width=(it.dw > 0 ? it.dw : 320) height=(it.dh > 0 ? it.dh : 240) border-radius=10
+                                            else
+                                              image `${server}/v1/file?p=${it.v}&s=${selected}&t=${token}` width=(it.dw > 0 ? it.dw : 320) height=(it.dh > 0 ? it.dh : 240) border-radius=10
+                                            if it.alt != ""
+                                              text it.alt font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                          if b.kind == "reasoning" and (openProcess == m.id or verbose)
+                            column background-color="surface.card" border-radius=8 padding="8px 10px" flex=1 min-width=0
+                              text b.text font="-exact-caption1" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
+                          if b.kind == "tool" and b.child != ""
+                            row press=openChild(b.child) gap=6 align-items="center" padding="4px 0" testId=`child-${b.id}`
+                              image "symbol:people" font-size="0.6rem" color="brand.fill"
+                              text "打开子代理会话" font-size="0.69rem" color="brand.fill"
+                          if b.kind == "tool" and (openProcess == m.id or verbose)
+                            column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
+                              row gap=6 align-items="center" press=toggleCall(b.callId) testId=`call-${b.callId}`
+                                image b.icon color="-exact-secondary-label"
+                                text b.text font-size="0.81rem" font-weight=600 font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+                                text b.summary font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1 flex=1 min-width=0
+                                if b.status == "ok"
+                                  image "symbol:checkmark" color="-exact-system-green"
+                                if b.status == "error"
+                                  text b.badge font-size="0.62rem" color="-exact-system-red"
+                                  image "symbol:alert" color="-exact-system-red"
+                                if b.status == "unknown"
+                                  image "symbol:alert" color="-exact-system-orange"
+                                if b.status == "running"
+                                  image "symbol:circle" color="-exact-system-orange"
+                                text (b.callId == openCall ? "−" : "+") font-size="0.75rem" color="-exact-tertiary-label"
+                              if b.todos.length > 0
+                                column gap=3
+                                  for t in b.todos key=t.id
+                                    row gap=6 align-items="flex-start"
+                                      text (t.state == "completed" ? "●" : t.state == "in_progress" ? "◐" : "○") font-size="0.75rem" color=(t.state == "completed" ? "-exact-system-green" : t.state == "in_progress" ? "-exact-system-orange" : "-exact-tertiary-label")
+                                      text t.text font-size="0.81rem" color=(t.state == "completed" ? "-exact-tertiary-label" : "-exact-label") white-space="pre-wrap" flex=1 min-width=0
+                              if b.files.length > 0
+                                column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
+                                  text "交付物" font-size="0.69rem" color="-exact-tertiary-label"
+                                  for f in b.files key=f.id
+                                    column gap=2
+                                      text f.path font-size="0.75rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" color="text.ink" line-clamp=2 testId=`file-${f.id}`
+                                      if f.text != ""
+                                        text f.text font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
+                              if b.question != ""
+                                column gap=4
+                                  text b.question font-size="0.81rem" font-weight=600 white-space="pre-wrap"
+                                  for o in b.options key=o.id
+                                    text o.text font-size="0.75rem" color="-exact-secondary-label"
+                                  text "在 Mac 上回答 —— 手机能看，暂时不能回。" font-size="0.69rem" color="-exact-tertiary-label"
+                              if b.callId == openCall and b.images.length > 0
+                                for im in b.images key=im.id
+                                  image `${server}/v1/attachments/${im.att}?t=${token}` width=220 height=(im.w > 0 and im.h > 0 ? 220 * im.h / im.w : 160) border-radius=8 testId=`timg-${im.id}`
+                              if b.callId == openCall and b.todos.length == 0 and b.question == ""
+                                if dCallId == b.callId and dArgs != ""
+                                  text dArgs font-size="0.69rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=14
+                                if not (dCallId == b.callId and dArgs != "") and b.args != ""
+                                  text b.args font-size="0.69rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=14
+                                if dCallId == b.callId and dResult != ""
+                                  text dResult font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=18
+                                if not (dCallId == b.callId and dResult != "") and b.result != ""
+                                  text b.result font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=18
+                                if b.lazy and dCallId != b.callId
+                                  text "载入中…" font-size="0.69rem" color="-exact-tertiary-label"
+                                for d in b.diffs key=d.id
+                                  column gap=2
+                                    text `${d.path}  +${d.added} −${d.removed}` font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                                    for ln in d.lines key=ln.id
+                                      text `${ln.sign}${ln.text}` font-size="0.69rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" white-space="pre-wrap" overflow-wrap="break-word" color=(ln.sign == "+" ? "-exact-system-green" : ln.sign == "-" ? "-exact-system-red" : "-exact-tertiary-label")
+                          if b.kind == "image" and b.att != ""
+                            column gap=4
+                              image `${server}/v1/attachments/${b.att}?t=${token}` width=240 height=(b.w > 0 and b.h > 0 ? 240 * b.h / b.w : 180) border-radius=10 testId=`img-${b.id}`
+                              if b.text != ""
+                                text b.text font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                          if b.kind == "unsupported"
+                            row gap=6 align-items="center" padding="6px 0"
+                              text b.text font-size="0.81rem" color="-exact-secondary-label"
+                              text "Not shown on the phone yet. Open it on the Mac." font-size="0.69rem" color="-exact-tertiary-label"
+                        if m.text != ""
+                          row justify-content="flex-end" gap=8
+                            row press=copyBody(m.text) padding="6px 8px" border-radius=8 testId=`copy-${m.seq}`
+                              text "复制" font-size="0.69rem" color="-exact-tertiary-label"
+                            row press=forkHere(m.seq) padding="6px 8px" border-radius=8 testId=`forkhere-${m.seq}`
+                              text "分叉" font-size="0.69rem" color="-exact-tertiary-label"
+                        if m.usage != ""
+                          text m.usage font-size="0.69rem" color="-exact-tertiary-label"
+                        if m.interrupted
+                          text "已中断 —— 本轮被手动停止" font-size="0.69rem" color="-exact-secondary-label" testId=`stopped-${m.seq}`
+                        if m.interrupted and lastUserText != "" and snap.running == false
+                          row press=resendLast padding="6px 12px" border-radius=10 background-color="surface.card-strong" testId=`retry-${m.seq}`
+                            image "symbol:refresh" font-size="0.7rem" color="brand.fill"
+                            text "重发这条" font-size="0.75rem" color="brand.fill"
+                    else
+                      if m.role == "result"
+                        text m.text font="-exact-caption1" color="-exact-secondary-label" padding="2px 16px" white-space="pre-wrap" line-clamp=6
+            if echoText != "" and lastUserText != echoText
+              row justify-content="flex-end" padding="4px 0" testId="echo-row"
+                column gap=2 align-items="flex-end" max-width="78%"
+                  text echoText padding="8px 12px" border-radius=18 white-space="pre-wrap" overflow-wrap="break-word" background-color="brand.fill" color="ink.on-brand" opacity=0.55
+                  text "发送中…" font-size="0.62rem" color="-exact-tertiary-label"
+            // DSH's RunningStatus slot: after the turn's content, the whale tail
+            // and `深度求索中，用时 …` — always present while the session runs,
+            // whether text is streaming, tools run, or the turn predates a reload.
+            if snap.running
+              row gap=6 align-items="center" padding="6px 12px" testId="running-status"
+                image "assets/whale.svg" width=14 height=14 color="brand.fill"
+                text snap.runLabel font-size="0.75rem" color="brand.fill"
+              match snap.runActivity
+                case some(act)
+                  if act.detail != ""
+                    text `${act.label} · ${act.detail}` font-size="0.72rem" color="-exact-secondary-label" padding="0 12px 6px 32px" line-clamp=2 testId="running-activity"
+                  else
+                    text act.label font-size="0.72rem" color="-exact-secondary-label" padding="0 12px 6px 32px" testId="running-activity"
+                case none
+                  text ""
+            if snap.messages.length == 0 and snap.streamText == ""
+              text "问点什么 —— 这就是 Mac 上那个会话。" font="-exact-footnote" color="-exact-secondary-label" padding="4px 16px"
+            if snap.question != none
+              column gap=6 padding="10px 12px" background-color="surface.card" border-radius=12
+                if qHint != ""
+                  text qHint font-size="0.69rem" color="-exact-tertiary-label" testId="question-hint"
+                text qAsk font="-exact-body" font-weight=600 testId="question-ask"
+                if qDetail != ""
+                  text qDetail font="-exact-caption1" color="-exact-secondary-label" line-clamp=6
+                for o in qOptions key=o.id
+                  row press=pickOption(qId, qQid, o.text, qMulti) gap=8 align-items="center" padding="9px 12px" background-color=(picked.split("|").includes(o.text) ? "brand.fill" : "surface.card-strong") border-radius=10 testId=`option-${o.id}`
+                    column flex=1 min-width=0 gap=1
+                      text o.text font-size="0.81rem" color=(picked.split("|").includes(o.text) ? "ink.on-brand" : "text.ink")
+                      if o.description != ""
+                        text o.description font-size="0.69rem" color=(picked.split("|").includes(o.text) ? "ink.on-brand" : "-exact-tertiary-label") line-clamp=2
+                if qMulti
+                  row press=sendPicked(qId, qQid) justify-content="center" padding="8px 14px" border-radius=10 background-color=(picked == "" ? "surface.card-strong" : "brand.fill") opacity=(picked == "" or pending(replied) ? 0.6 : 1) testId="question-answer"
+                    text "Answer" font-size="0.81rem" font-weight=600 color=(picked == "" ? "text.ink" : "ink.on-brand")
+                row press=answerOnMac(qId) justify-content="center" padding="6px 0"
+                  text "改为在 Mac 上回答" font-size="0.69rem" color="-exact-tertiary-label" testId="question-skip"
+            if snap.queue.length > 0
+              column gap=4 padding="8px 12px" background-color="surface.card" border-radius=12
+                text `已排队，下一轮发送 · ${snap.queue.length}` font-size="0.69rem" color="-exact-tertiary-label"
+                for qd in snap.queue key=qd.id
+                  if queueEdit == qd.id
+                    column gap=6
+                      input value=queueDraft input=queueInput placeholder="改写这条排队消息" aria-label="Edit queued message" testId=`queue-input-${qd.id}` flex=1 min-width=0 min-height=44 background-color="surface.card-strong" border-radius=10 padding="10px 12px"
+                      row gap=10
+                        row press=saveQueue(qd.id) padding="8px 12px" border-radius=10 background-color="brand.fill" testId=`queue-save-${qd.id}`
+                          text "保存" font-size="0.75rem" color="ink.on-brand"
+                        row press=steerQueue(qd.id, queueDraft) padding="8px 12px" border-radius=10 background-color="surface.card-strong" testId=`queue-steer-${qd.id}`
+                          text "立即发送" font-size="0.75rem" color="text.ink"
+                        row press=cancelQueueEdit padding="8px 12px" testId=`queue-cancel-${qd.id}`
+                          text "取消" font-size="0.75rem" color="-exact-secondary-label"
+                  else
+                    row gap=8 align-items="center"
+                      row press=editQueue(qd.id, qd.text) flex=1 min-width=0 padding="2px 0" testId=`queue-edit-${qd.id}`
+                        text qd.text flex=1 min-width=0 font-size="0.75rem" line-clamp=2
+                      row press=steerQueue(qd.id, qd.text) padding="6px" testId=`queue-now-${qd.id}`
+                        image "symbol:refresh" font-size="0.8rem" color="brand.fill"
+                      row press=dropQueued(qd.id) padding="6px" testId=`queue-drop-${qd.id}`
+                        image "symbol:close" font-size="0.6rem" color="-exact-tertiary-label"
+            if todoTotal > 0
+              column gap=3 padding="8px 12px" background-color="surface.card" border-radius=12
+                row press=toggleTodos gap=8 align-items="center" testId="todo-toggle"
+                  text `Plan · ${todoDone}/${todoTotal}` font-size="0.69rem" color="-exact-tertiary-label" flex=1
+                  image "symbol:list" font-size="0.6rem" color="-exact-tertiary-label"
+                if showTodos
+                  for td in snap.todos key=td.id
+                    row gap=6 align-items="flex-start"
+                      text (td.state == "completed" ? "●" : td.state == "in_progress" ? "◐" : "○") font-size="0.69rem" color=(td.state == "completed" ? "brand.fill" : "-exact-tertiary-label")
+                      text td.text flex=1 min-width=0 font-size="0.75rem" line-clamp=2
+            if snap.approvals.length > 0
+              column gap=6 padding="10px 12px" background-color="surface.card" border-radius=12
+                for a in snap.approvals key=a.id
+                  text "Mac 在等你的审批" font="-exact-footnote" color="-exact-secondary-label"
+                  text a.toolName font="-exact-body" font-weight=600 testId=`approval-${a.id}`
+                  if a.plan != ""
+                    text a.plan font-size="0.8rem" color="text.ink" white-space="pre-wrap" line-clamp=24 testId=`approval-plan-${a.id}`
+                  if a.args != "" and a.plan == ""
+                    text a.args font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.69rem" background-color="surface.card-strong" padding="6px 8px" border-radius=8 line-clamp=5 white-space="pre-wrap"
+                  if a.summary != ""
+                    text a.summary font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.75rem" color="-exact-secondary-label" line-clamp=2
+                  if a.reason != ""
+                    text a.reason font="-exact-caption1" color="-exact-secondary-label" line-clamp=3
+                  text `Hands back to the Mac in ${a.expiresIn}s` font-size="0.69rem" color="-exact-tertiary-label"
+                  row gap=8 align-items="center"
+                    row press=decide(a.id, true) padding="8px 14px" border-radius=10 background-color=(pending(answered) ? "surface.card-strong" : "brand.fill") opacity=(pending(answered) ? 0.6 : 1) testId=`allow-${a.id}`
+                      text "允许一次" font-size="0.81rem" font-weight=600 color="ink.on-brand"
+                    row press=decide(a.id, false) padding="8px 14px" border-radius=10 background-color="surface.card-strong" opacity=(pending(answered) ? 0.6 : 1) testId=`deny-${a.id}`
+                      text "拒绝" font-size="0.81rem"
+                    row press=alwaysAllow(a.id) padding="8px 10px" border-radius=10 testId=`always-${a.id}`
+                      text "总是允许" font-size="0.75rem" color="-exact-secondary-label"
+            if draft.startsWith("/")
+              column gap=2 padding="0 12px 6px 12px"
+                for c in slashMatches key=c.name
+                  row press=runCommand(c.name, c.hint) gap=8 align-items="center" padding="8px 10px" background-color="surface.card" border-radius=10 testId=`cmd-${c.name}`
+                    column flex=1 min-width=0 gap=1
+                      text ("/" + c.name) font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.75rem"
+                      text c.description font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                if slashMatches.length == 0
+                  text "No command matches." font-size="0.69rem" color="-exact-tertiary-label"
+            if receipt != ""
+              row press=dismissReceipt gap=8 align-items="center" padding="6px 12px" testId="receipt"
+                text receipt flex=1 min-width=0 font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
+            if sendError != "" and not pending(sent)
+              text sendError font="-exact-footnote" color="-exact-system-red" padding="0 16px"
+            if not stick
+              row justify-content="center" padding="0 0 6px 0"
+                row press=jumpLatest gap=4 align-items="center" padding="6px 12px" background-color="surface.card" border-radius=16 testId="jump-latest"
+                  text "Latest" font-size="0.75rem"
+                  image "symbol:forward-chevron" font-size="0.5rem"
+            column gap=6 padding="0 10px 8px 10px"
+              if attachId != "" or attachErr != ""
+                row gap=8 align-items="center" padding="6px 8px" background-color="surface.card-strong" border-radius=12 testId="attach-chip"
+                  image "symbol:photo" font-size="0.75rem" color="brand.fill"
+                  if attachId != ""
+                    text (pending(uploaded) ? `正在上传 ${attachName == "" ? "图片" : attachName}…` : attachName) font-size="0.75rem" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1
+                  if attachErr != ""
+                    text attachErr font-size="0.75rem" color="-exact-system-red" flex=1 min-width=0 line-clamp=1
+                  if attachId != "" and not pending(uploaded)
+                    column width=28 height=28 align-items="center" justify-content="center" press=clearAttach testId="attach-clear"
+                      image "symbol:close" font-size="0.62rem" color="-exact-tertiary-label"
+              if attachId == "" and attachErr == ""
+                input type="file" accept="image/*" id="imgpick" change=pickedImage width=1 height=1 opacity=0 aria-label="添加图片" testId="imgpick"
+              row gap=8 align-items="flex-end" padding="8px 8px 8px 14px" background-color="surface.card" border-radius=24 border-color="surface.card" border-width=1 border-style="solid"
+                if attachId == ""
+                  column width=32 height=32 align-items="center" justify-content="center" press=pickPhoto testId="attach"
+                    image "symbol:photo" font-size="1rem" color=(pending(uploaded) ? "-exact-tertiary-label" : "-exact-secondary-label")
+                textarea value=draft input=editDraft field-sizing="content" max-height=140 border="none" background-color="surface.card" flex=1 min-width=0 placeholder="发消息…" aria-label="Message" testId="draft"
+                column width=36 height=36 align-items="center" justify-content="center" background-color=(canSend ? "brand.fill" : "surface.card-strong") border-radius=18 press=send testId="send"
+                  image "symbol:send" color=(canSend ? "ink.on-brand" : "-exact-tertiary-label")
+              if snap.sessionModel != ""
+                row gap=8 padding="0 8px" align-items="center"
+                  row press=openModels gap=3 align-items="center" aria-label="Model" testId="composer-model"
+                    text snap.sessionModel font-size="0.69rem" color="-exact-tertiary-label"
+                    image "symbol:forward-chevron" font-size="0.5rem" color="-exact-tertiary-label"
+                  if snap.running
+                    text "working…" font-size="0.69rem" color="-exact-tertiary-label"
+                    button press=pickMode(true) aria-label="Send into this turn" testId="mode-steer"
+                      text "本轮" font-size="0.69rem" color=(steer ? "brand.fill" : "-exact-tertiary-label")
+                    button press=pickMode(false) aria-label="Send as the next turn" testId="mode-queue"
+                      text "下一轮" font-size="0.69rem" color=(steer ? "-exact-tertiary-label" : "brand.fill")
+        if e.name == "models"
+          column navigationKey=`${e.id}` navigationScroll="model-list" navigationBar="none" navigationPresentation="modal" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" padding-top="var(--exact-safe-area-inset-top)"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              text "模型" role="heading" aria-level=1 flex=1
+              button press=leave id="models-cancel" aria-label="Close" testId="models-cancel"
+                image "symbol:close"
+              text "Next turn" font="-exact-footnote" color="-exact-secondary-label"
+            row height="1px" width="100%"
+            if effortModel == ""
+              list id="model-list" appearance="none" flex=1 min-height=0
+                for m in models.models key=m.id
+                  row press=chooseModel(m.provider, m.id, m.efforts) gap=10 align-items="center" padding="12px 16px" testId=`model-${m.id}`
+                    column flex=1 min-width=0 gap=2
+                      text m.name
+                      text m.provider font="-exact-footnote" color="-exact-secondary-label"
+                    if m.current
+                      image "symbol:checkmark" color="brand.fill"
+            if effortModel != ""
+              column gap=2 padding="4px 16px"
+                row press=backToModels gap=6 align-items="center" testId="effort-back"
+                  image "symbol:back" font-size="0.75rem" color="-exact-secondary-label"
+                  text "Models" font-size="0.75rem" color="-exact-secondary-label"
+                text effortModel font="-exact-footnote" color="-exact-secondary-label"
+              list id="effort-list" appearance="none" flex=1 min-height=0
+                for ef in effortOptions key=ef
+                  row press=pickModel(effortProvider, effortModel, ef) gap=10 align-items="center" padding="12px 16px" testId=`effort-${ef}`
+                    text ef flex=1 min-width=0
+                    if ef == models.currentEffort
+                      image "symbol:checkmark" color="brand.fill"
+
+        if e.name == "find"
+          column navigationKey=`${e.id}` navigationScroll="find-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" padding-top="var(--exact-safe-area-inset-top)"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text "查找" role="heading" aria-level=1 flex=1
+            row padding="8px 16px"
+              input value=findQ input=editFind placeholder="在会话里查找" aria-label="在会话里查找" testId="find-field" flex=1 min-width=0 min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
+            list id="find-list" appearance="none" flex=1 min-height=0
+              for h in findRows key=h.id
+                column gap=2
+                  if h.role == "note"
+                    text h.text font="-exact-footnote" color="-exact-tertiary-label" padding="0 16px 8px 16px" testId="find-note"
+                  else
+                    column gap=2 padding="10px 16px" background-color="surface.card"
+                      text (h.role == "user" ? "You" : "DeepSeek") font-size="0.69rem" color="-exact-tertiary-label"
+                      text h.text font-size="0.81rem" line-clamp=4 white-space="pre-wrap"
+        if e.name == "perm"
+          column navigationKey=`${e.id}` navigationScroll="perm-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" padding-top="var(--exact-safe-area-inset-top)"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text "权限" role="heading" aria-level=1 flex=1
+            row height="1px" width="100%"
+            list id="perm-list" appearance="none" virtualized=true flex=1 min-height=0
+              for o in snap.permissionOptions key=o.value
+                row press=choosePermission(o.value) testId=`perm-${o.value}` gap=10 align-items="center" padding="12px 16px"
+                  column gap=2 flex=1
+                    text o.name font-size="0.94rem"
+                    if o.description != ""
+                      text o.description font="-exact-footnote" color="-exact-secondary-label"
+                  if o.value == snap.sessionPermission
+                    image "symbol:checkmark" color="brand.fill"
+        if e.name == "more"
+          column navigationKey=`${e.id}` navigationScroll="more-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text "会话" role="heading" aria-level=1 flex=1
+            list id="more-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                column gap=4 padding="4px 0" testId="stats-block"
+                  text "统计" font-size="0.69rem" color="-exact-tertiary-label"
+                  text `${snap.stats.turns} 回合 · ${snap.stats.steps} 步` font-size="0.81rem"
+                  text `${stIn} 进 · ${stOut} 出 · ${stCache} 缓存命中` font-size="0.75rem" color="-exact-secondary-label"
+                  if snap.stats.inTok + snap.stats.cacheRead > 0
+                    text `缓存命中率 ${floor(100 * snap.stats.cacheRead / (snap.stats.inTok + snap.stats.cacheRead))}%` font-size="0.75rem" color="-exact-secondary-label"
+              section
+                row gap=8 align-items="center"
+                  text "名称" flex=1
+                  input value=renameDraft input=editRename placeholder="会话名称" aria-label="会话名称" testId="rename-field"
+              section
+                button press=renameSession disabled=(renameDraft.trim() == "" or pending(renamed)) testId="rename-save"
+                  text (pending(renamed) ? "保存中…" : "重命名")
+              section
+                button press=openPermissions testId="perm-open"
+                  text "权限"
+              section
+                button press=openFind testId="find-open"
+                  text "在会话里查找"
+              section
+                button press=setFlag("pin", not snap.pinned) disabled=pending(flagged) testId="pin-toggle"
+                  text (snap.pinned ? "取消置顶" : "置顶这个会话")
+              section
+                button press=setFlag("archive", not snap.archived) disabled=pending(flagged) testId="archive-toggle"
+                  text (snap.archived ? "取消归档" : "归档")
+              if snap.goalId != ""
+                section
+                  button press=goalAction(snap.goalPhase == "paused" ? "resume" : "pause") disabled=pending(goalSet) testId="goal-toggle"
+                    text (snap.goalPhase == "paused" ? "恢复目标" : "暂停目标")
+                section
+                  button press=goalAction("clear") disabled=pending(goalSet) testId="goal-clear"
+                    text "清除目标"
+              if snap.subagents.length > 0
+                section
+                  for a in snap.subagents key=a.id
+                    if a.sessionId != ""
+                      button press=openChild(a.sessionId) testId=`sub-${a.id}`
+                        text `Subagent · ${a.label}`
+              section
+                button press=openJobs testId="jobs-open"
+                  text `后台任务${snap.jobs.length > 0 ? ` (${snap.jobs.length})` : ""}`
+              section
+                button press=forkSession disabled=pending(forked) testId="fork"
+                  text (pending(forked) ? "分叉中…" : "从这里分叉")
+              section
+                text "分叉会把当前会话已有的轮次复制成一个新会话，放在 Mac 上。" font="-exact-footnote" color="-exact-secondary-label"
+        if e.name == "jobs"
+          column navigationKey=`${e.id}` navigationScroll="jobs-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text "后台任务" role="heading" aria-level=1 flex=1
+            list id="jobs-list" appearance="none" flex=1 min-height=0
+              if snap.jobs.length == 0
+                text "这个会话没有后台任务。" font="-exact-footnote" color="-exact-secondary-label" padding="16px"
+              for j in snap.jobs key=j.id
+                column gap=4 padding="12px 16px"
+                  row gap=8 align-items="center"
+                    image "symbol:circle" font-size="0.45rem" color=(j.status == "running" or j.status == "stopping" ? "brand.fill" : "-exact-tertiary-label")
+                    text j.label flex=1 min-width=0 font="-exact-body" line-clamp=2 testId=`job-${j.id}`
+                    if j.status == "running" or j.status == "stopping"
+                      button press=killJob(j.id) aria-label="Stop job" testId=`kill-${j.id}`
+                        image "symbol:stop-fill" color="-exact-system-red"
+                  row gap=8
+                    text `Job ${j.id} · ${j.status}` font-size="0.69rem" color="-exact-tertiary-label"
+                    if j.when != ""
+                      text j.when font-size="0.69rem" color="-exact-tertiary-label"
+                  if j.progress != ""
+                    text j.progress font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
+                  if j.detail != ""
+                    text j.detail font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
+        if e.name == "scan"
+          column navigationKey=`${e.id}` navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text "Scan QR" role="heading" aria-level=1 flex=1
+            if scanTrack != ""
+              exact-camera srcObject=scanTrack object-fit="cover" aria-label="Camera" testId="scan-viewfinder" flex=1 min-height=0 width="100%"
+            else
+              column flex=1 align-items="center" justify-content="center" padding=24 gap=10
+                text (cameraError == "" ? "Opening the camera…" : cameraError) text-align="center" color="-exact-secondary-label"
+            column gap=10 padding=16 align-items="center" background-color="surface.page"
+              if firstCode == ""
+                text "Point the camera at the code on the Mac." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
+              else
+                text "Code found" font="-exact-subheadline" testId="scan-found"
+                row press=connect(firstCode) padding="10px 16px" border-radius=12 background-color=(pending(scanned) ? "surface.card-strong" : "brand.fill") opacity=(pending(scanned) ? 0.6 : 1) testId="scan-connect"
+                  text (pending(scanned) ? "Pairing…" : "Pair with this Mac") font-size="0.94rem" font-weight=600 color="ink.on-brand"
+              // No camera (a simulator, or a refusal): the same link typed by hand.
+              column gap=8 align-items="stretch" width="100%"
+                input value=scanNote input=editScanNote placeholder="dshm://pair?…" aria-label="Pairing link" testId="scan-link" min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
+                button press=connect(scanNote) disabled=(scanNote == "" or pending(scanned)) testId="scan-manual"
+                  text "配对"
+              if linkError != ""
+                text linkError font="-exact-footnote" color="-exact-system-red" text-align="center" testId="scan-error"
+        if e.name == "open"
+          column navigationKey=`${e.id}` navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" align-items="center" justify-content="center" padding=24 gap=12
+            image "assets/whale.svg" width=44 height=44 color="brand.fill"
+            if match deepLinked { case some(r) => r.ok, case none => false }
+              text "已连接到你的 Mac" font="-exact-headline" text-align="center" testId="open-done"
+              row press=goHome padding="12px 24px" border-radius=12 background-color="brand.fill" testId="open-enter"
+                text "进入会话列表" font-size="0.94rem" font-weight=600 color="ink.on-brand"
+            else
+              text (pending(deepLinked) or openUrl == "" ? "正在通过链接配对…" : "收到配对链接") font="-exact-headline" text-align="center" testId="open-title"
+              if deepError != ""
+                text deepError font="-exact-footnote" color="-exact-system-red" text-align="center" testId="open-error"
+              row press=connect(openUrl) padding="13px 20px" border-radius=12 background-color=(pending(deepLinked) ? "surface.card-strong" : "brand.fill") opacity=(pending(deepLinked) ? 0.6 : 1) testId="open-retry"
+                text "重试配对" font-size="0.94rem" font-weight=600 color="ink.on-brand"
+              row press=toSettings padding="12px 20px" min-height=44 testId="open-manual"
+                text "改为手动配对" font-size="0.87rem" color="-exact-secondary-label"
+        if e.name == "settings"
+          column navigationKey=`${e.id}` navigationScroll="settings-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
+            row align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text "连接" role="heading" aria-level=1 flex=1
+            list id="settings-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              if devices.devices.length > 0
+                section
+                  text "已配对的设备" font-size="0.69rem" color="-exact-tertiary-label" padding="6px 16px 2px 16px"
+                  for dv in devices.devices key=dv.id
+                    row gap=8 align-items="center" padding="8px 4px" testId=`device-${dv.id}`
+                      column flex=1 min-width=0 gap=2
+                        text (dv.mine ? `${dv.name}（本机）` : dv.name) font-size="0.81rem" line-clamp=1
+                            text dv.when font-size="0.69rem" color="-exact-tertiary-label"
+                      if not dv.mine
+                        button press=revokeDevice(dv.id) disabled=pending(revoked) testId=`revoke-${dv.id}`
+                          text "移除" color="-exact-system-red" font-size="0.75rem"
+              section
+                row gap=8 align-items="center"
+                  text "默认展开过程" flex=1
+                  input type="checkbox" switch checked=verbose change=setVerbose testId="verbose-toggle"
+              section
+                row gap=8 align-items="center"
+                  text "服务器" flex=1
+                  input value=server input=editServer placeholder="https://…" aria-label="服务器" testId="server"
+              section
+                row gap=8 align-items="center"
+                  text "令牌" flex=1
+                  input value=token input=editToken placeholder="paste token" aria-label="令牌" testId="token"
+              section
+                row gap=8 align-items="center"
+                  text "配对码" flex=1
+                  input value=code input=editCode placeholder="6 digits" aria-label="配对码" testId="code"
+              section
+                button press=pair disabled=(code.length != 6 or pending(paired)) testId="pair"
+                  text (pending(paired) ? "Pairing…" : "配对")
+              if pairError != ""
+                section
+                  text pairError font="-exact-footnote" color="-exact-system-red" testId="pair-error"
+              section
+                text "On the Mac open /pair — it shows a QR code and the six digits." font="-exact-footnote" color="-exact-secondary-label"

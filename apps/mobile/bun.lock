@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "mobile",
+      "dependencies": {
+        "@exact/barcode-detection": "file:../../vendor/exact/packages/barcode-detection",
+        "@exact/camera": "file:../../vendor/exact/packages/camera",
+        "@exact/media-capture": "file:../../vendor/exact/packages/media-capture",
+      },
+    },
+  },
+  "packages": {
+    "@exact/barcode-detection": ["@exact/barcode-detection@file:../../vendor/exact/packages/barcode-detection", { "peerDependencies": { "@exact/media-capture": "1.0.0" }, "optionalPeers": ["@exact/media-capture"] }],
+
+    "@exact/camera": ["@exact/camera@file:../../vendor/exact/packages/camera", { "peerDependencies": { "@exact/media-capture": "1.0.0" }, "optionalPeers": ["@exact/media-capture"] }],
+
+    "@exact/media-capture": ["@exact/media-capture@file:../../vendor/exact/packages/media-capture", {}],
+  }
+}

@@ -1,0 +1,18 @@
+test "it opens on the session list"
+  expect tree has "app"
+  expect tree has "scan-now"
+
+test "settings keeps where the Mac lives"
+  tap "settings"
+  type "server" "http://127.0.0.1:9999"
+  expect state server == "http://127.0.0.1:9999"
+  expect tree has "code"
+
+test "the scan screen takes a pairing link"
+  tap "scan-now"
+  expect tree has "scan-link"
+  expect text "scan-link" == ""
+
+test "a dshm link opens the pairing handoff"
+  type "app" "dshm://pair?u=http%3A%2F%2F127.0.0.1%3A9&d=http%3A%2F%2F127.0.0.1%3A9&c=123456"
+  expect state openUrl in "http://127.0.0.1:9" "dshm://pair?u=http%3A%2F%2F127.0.0.1%3A9&d=http%3A%2F%2F127.0.0.1%3A9&c=123456"

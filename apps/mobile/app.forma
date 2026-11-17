@@ -1,0 +1,12 @@
+// dsh-remote's own colours: a neutral ground so the app looks the same on
+// every device (Android's wallpaper tint made bars and cards pink on a Xiaomi).
+forma dsh-remote
+
+theme
+  surface.page = light-dark(#ffffff, #0f1115)
+  surface.card = light-dark(#f3f4f6, #17191d)
+  surface.card-strong = light-dark(#e9eaee, #1f2227)
+  text.ink = light-dark(#0f1115, #f4f6f8)
+  text.soft = light-dark(#6b7280, #9aa3ad)
+  brand.fill = #3d6df2  scheme=fixed
+  ink.on-brand = #ffffff  scheme=fixed
