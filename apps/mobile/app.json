@@ -1,5 +1,7 @@
 {
-  "strings": { "base": "zh-Hans" },
+  "strings": {
+    "base": "zh-Hans"
+  },
   "$schema": "../../vendor/exact/scripts/app.schema.json",
   "name": "dsh-remote",
   "short_name": "dsh-remote",
@@ -27,9 +29,9 @@
       "ios": "A",
       "android": "A"
     },
-    "channel": "prod",
+    "channel": "prod2",
     "channels": {
-      "prod": "appdrop"
+      "prod2": "appdrop"
     },
     "signing": {
       "key": "dsh-remote",
