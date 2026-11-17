@@ -895,6 +895,9 @@ component Mobile
                   image "symbol:add"
               button press=toSettings aria-label="设置" testId="settings"
                 image "symbol:settings"
+            row gap=6 align-items="baseline" padding="2px 16px 4px 16px" testId="version-line"
+              text "dsh-remote 0.1.0" font-size="0.62rem" color="-exact-tertiary-label"
+              text "· 通道 prod · AppDrop" font-size="0.62rem" color="-exact-tertiary-label"
             match snap.balance
               case some(bal)
                 if not bal.signedOut and not bal.failed and bal.wallets.length > 0
