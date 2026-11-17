@@ -1,2 +1,8 @@
+/target/
+/dist/
+/dist.*
+/dist-windows/
 /node_modules/*
 !/node_modules/@exact/
+/.exact/
+/.env.local
