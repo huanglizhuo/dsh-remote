@@ -211,3 +211,6 @@ A1 文件查看屏 → B5 定时任务 → A4 reasoning 全文 → B8 反馈 not
 
 ### B8 修复（第八轮）：反馈 target 修正
 真机 👎 note 流程发现 `target-not-found`：messageFeedback.put 的 messageId 必须是 DSH 消息 UUID（`deriveEventMessage(event).id`），而非事件 seq。已修：bridge assistant 行携带 `msgId`（合并回合保留最后一步的 id），feedback POST 接受 `body.id`（字符串 UUID，兼容旧 seq）；手机端 MessageRow.msgId 贯通，👍/👎/note 全部改用 msgId。离线 mock 验证：合并回合 msgId=msg-uuid-2、POST {id} → svc.put 收到正确 target。（运行中 bridge 为旧模块，重启后真机生效。）
+
+### D12 验证说明（第八轮）
+done-toast 为 `wasRunning → not snap.running` 边沿触发 + 4 秒自动清除。两次 iOS 驱动尝试（Ping 会话真实 prompt）未在驱动轮询窗口内捕获到 toast 展示帧（回复完成时机与 2.5s 采样步长错开）；逻辑代码路径简单，待日常使用中自然复核。
