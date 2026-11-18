@@ -204,3 +204,7 @@ A1 文件查看屏 → B5 定时任务 → A4 reasoning 全文 → B8 反馈 not
 
 ### 待下次重启后复核
 - schedules pause/edit/delete（修复后）；team board（需有 agentTeam 的会话）；workflow 编排卡（需 workflow 运行）。
+
+### 第八轮补充验证（同日）
+- ✅ **B7 workflow 编排卡**：在本会话真实运行两阶段 workflow（verify-workflow-card，2 agents）→ transcript 出现 `wf-<runId>` 折叠卡：label「编排 verify-workflow-card」/ status ok / 成员清单「one · step-one ✓completed」「two · step-two ✓completed」。事件源为 tool-workflow/run-start|agent-start|agent-end|run-end。
+- **B6 team board**：渲染代码就绪（/v1/live 附 session.team），但当前无带 agentTeam 投影的会话可验证——待真实团队会话出现后复核。
