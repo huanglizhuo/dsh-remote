@@ -2290,7 +2290,9 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         })
         try {
           if (req.method === 'GET' && parts.length === 2) {
-            const listed = await svc.list({ limit: 100 })
+            // Remote services wrap results: {ok, value:{items}} — unwrap either shape.
+            const raw = await svc.list({ limit: 100 })
+            const listed = raw && typeof raw === 'object' && 'value' in raw ? raw.value : raw
             const items = Array.isArray(listed?.items) ? listed.items : []
             return json(res, 200, { items: items.map(mapTask), total: Number(listed?.total ?? items.length) })
           }
@@ -2310,7 +2312,9 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
             const currentUpdatedAt = async () => {
               if (typeof body.updatedAt === 'string' && body.updatedAt !== '') return body.updatedAt
               try {
-                const listed = await svc.list({ limit: 100 })
+                // Remote services wrap results: {ok, value:{items}} — unwrap before lookup.
+                const raw = await svc.list({ limit: 100 })
+                const listed = raw && typeof raw === 'object' && 'value' in raw ? raw.value : raw
                 const hit = (Array.isArray(listed?.items) ? listed.items : []).find((t) => String(t?.id ?? '') === id)
                 return hit?.updatedAt ?? null
               } catch { return null }
