@@ -220,3 +220,10 @@ done-toast 为 `wasRunning → not snap.running` 边沿触发 + 4 秒自动清�
 - ✅ **B5 schedules**：真实服务全链路——create（daily 21:30）→ list（timingText「每天 21:30 (Asia/Shanghai)」）→ edit+pause（改名+status paused，无 409）→ delete（list 清空）。
 - 顺带修复：feedback GET list 需解 Remote 服务 {ok,value} 包装（文件已改，下次重载生效；手机端当前不用 GET）。
 - 终态：A1/A2/A4/B5/B7/B8/B9/C11 真机或真实服务验证；A3 受当前模型无图片输入限制（viewer 基建与 A1 共享已验证）；B6 子代理跳转已有+team board 渲染就绪（无 agentTeam 会话数据可验证）；C10 上游 prompt 仅支持 text+image；D13 移动端以 running 脉冲等价呈现（有意）；D12 边沿逻辑就绪待自然复核。
+
+### Android 真机验证（goal-09734780 补充）
+- ✅ 反馈 👎→note→发送：Android 真机全流程，Mac 侧落库确认（negative+note）后清理。
+- ✅ Schedules：Android UI 创建（每天 22:00）→ 暂停 → 删除，服务端确认全部生效。
+- 修复 1（bridge，commit be6cc52）：`svc.list` 返回 Remote `{ok,value:{items}}` 包装，`currentUpdatedAt()` 取不到 → 设备端暂停/删除 409 schedule_conflict；已解包（下次 bridge 重载生效；设备端同时补发 `updatedAt`，两者冗余兜底）。
+- 修复 2（app.ts）：deleteSchedule 结果需符合合同 Reply 形状 {ok,error}（post() 的 data 字段会被 mutation 拒绝，`then` 不执行）。
+- 工程教训：Exact mutation 的 send 结果必须精确匹配 shape，多余字段（如 data）= 回答被拒、静默不生效；agent drive 相邻 tap 需给足间隔（6s+），否则资源未刷新 target 不存在。

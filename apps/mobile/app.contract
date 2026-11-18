@@ -789,12 +789,12 @@ component Mobile
       send schedSaved = createSchedule(server, token, schedTitle.trim(), schedPrompt.trim(), schedTiming)
       schedTitle = ""
       schedPrompt = ""
-  action toggleSched(id: string, active: bool)
+  action toggleSched(id: string, active: bool, updatedAt: string)
     if not pending(schedSaved)
-      send schedSaved = editSchedule(server, token, id, active ? `{"active":false}` : `{"active":true}`)
-  action delSched(id: string)
+      send schedSaved = editSchedule(server, token, id, (active ? `{"active":false` : `{"active":true`) + (updatedAt != "" ? `,"updatedAt":"${updatedAt}"` : "") + `}`)
+  action delSched(id: string, updatedAt: string)
     if not pending(schedDeleted)
-      send schedDeleted = deleteSchedule(server, token, id)
+      send schedDeleted = deleteSchedule(server, token, id, updatedAt)
   action runSched(id: string)
     if not pending(schedRan)
       send schedRan = runSchedule(server, token, id)
@@ -1907,10 +1907,10 @@ component Mobile
                     image "symbol:refresh" font-size="0.8rem" color=(st.status == "active" ? "brand.fill" : "-exact-tertiary-label")
                     text st.title flex=1 min-width=0 font="-exact-body" line-clamp=1
                     if st.status == "active"
-                      button press=toggleSched(st.id, true) disabled=pending(schedSaved) testId=`sched-pause-${st.id}`
+                      button press=toggleSched(st.id, true, st.updatedAt) disabled=pending(schedSaved) testId=`sched-pause-${st.id}`
                         text t("sched.pause")
                     if st.status != "active"
-                      button press=toggleSched(st.id, false) disabled=pending(schedSaved) testId=`sched-resume-${st.id}`
+                      button press=toggleSched(st.id, false, st.updatedAt) disabled=pending(schedSaved) testId=`sched-resume-${st.id}`
                         text t("sched.resume")
                   if st.timing != ""
                     text st.timing font-size="0.69rem" color="-exact-tertiary-label"
@@ -1919,7 +1919,7 @@ component Mobile
                   row gap=8
                     button press=runSched(st.id) disabled=pending(schedRan) testId=`sched-run-${st.id}`
                       text t("sched.run")
-                    button press=delSched(st.id) disabled=pending(schedDeleted) testId=`sched-del-${st.id}`
+                    button press=delSched(st.id, st.updatedAt) disabled=pending(schedDeleted) testId=`sched-del-${st.id}`
                       text t("sched.delete")
               section
                 text t("sched.new") font="-exact-footnote" color="-exact-secondary-label"

@@ -9,7 +9,7 @@
 //   cancelRun: (args: [string, string, string]) => Reply
 //   createSchedule: (args: [string, string, string, string, string]) => Reply
 //   createSession: (args: [string, string, string]) => Created
-//   deleteSchedule: (args: [string, string, string]) => Reply
+//   deleteSchedule: (args: [string, string, string, string]) => Reply
 //   dropQueued: (args: [string, string, string, string]) => Reply
 //   editSchedule: (args: [string, string, string, string]) => Reply
 //   forkFrom: (args: [string, string, string, number]) => Created
@@ -566,7 +566,7 @@ export interface SourceMap {
   "cancelRun": { args: [T0, T0, T0]; result: T75 };
   "createSchedule": { args: [T0, T0, T0, T0, T0]; result: T75 };
   "createSession": { args: [T0, T0, T0]; result: T78 };
-  "deleteSchedule": { args: [T0, T0, T0]; result: T75 };
+  "deleteSchedule": { args: [T0, T0, T0, T0]; result: T75 };
   "dropQueued": { args: [T0, T0, T0, T0]; result: T75 };
   "editSchedule": { args: [T0, T0, T0, T0]; result: T75 };
   "forkFrom": { args: [T0, T0, T0, T3]; result: T78 };

@@ -804,8 +804,13 @@ const sources: Sources = {
     }
   },
 
-  deleteSchedule: async ([server, token, id]): Promise<Result<'deleteSchedule'>> =>
-    post(server as string, token as string, `/v1/schedules/${encodeURIComponent(String(id))}/delete`),
+  deleteSchedule: async ([server, token, id, updatedAt]): Promise<Result<'deleteSchedule'>> => {
+    const body: Record<string, unknown> = {};
+    if (typeof updatedAt === 'string' && updatedAt !== '') body.updatedAt = updatedAt;
+    // The contract's Reply shape is {ok, error} — post()'s `data` stays local.
+    const out = await post(server as string, token as string, `/v1/schedules/${encodeURIComponent(String(id))}/delete`, body);
+    return { ok: out.ok, error: out.error };
+  },
 
   runSchedule: async ([server, token, id]): Promise<Result<'runSchedule'>> =>
     post(server as string, token as string, `/v1/schedules/${encodeURIComponent(String(id))}/run`),
