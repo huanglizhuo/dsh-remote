@@ -190,3 +190,17 @@ A1 文件查看屏 → B5 定时任务 → A4 reasoning 全文 → B8 反馈 not
 - **B9 统计深挖**：已落地。more sheet 统计区新增"平均每轮 tokens"（(in+cache+out)/turns，千位缩写）。
 - **C10 非图片附件**：继续顺延。原因：DSH prompt wire 只收 text/image，文件必须经 fileUploads 服务按 Agent 分阶段 staging 换 receiptId 再入 prompt（session-controller commands.ts resolvePromptFileReceipts），桥侧无法安全伪造；需先在桌面端验证 staging 流程。
 - **D13 状态徽标细分**：继续顺延。原因：会话列表错误态需要 per-session 的 lastError 投影，callList 的 registry 投影不含该字段，需上游新增投影。
+
+## 第八轮：iOS 模拟器端到端验证（2026-11-18）
+
+真机断开后改用 iOS 模拟器（DSH Mobile，`bun exact.mjs ios` + `bun exact.mjs agent ios --sim <udid>`，深链配对走 loopback /v1/pairing）验证：
+
+- ✅ **transcript 富渲染**：大会话（27 rows/take=2）bash 工具卡、turn-rail、deliverables 卡、injection/trigger 行均出现。
+- ✅ **A1 文件查看屏**：在本会话 present 文档制造真实交付物 → 点交付物文件 chip → viewer 页渲染全文（file-name/file-text）。发现并修复 bug：openFile/openImage 原先 `push(go(nav,"/"), path("viewer"))` 清掉了栈中 chat 条目，导致 `derive selected`（从栈中 chat 参数取 id）为空、请求发到 `/v1/sessions//file`；改为 `push(nav, path("viewer"))` 后正常，且返回手势回会话而非列表。
+- ✅ **B5 定时任务**：模拟器创建「日报提醒」daily 任务 → Mac 侧确认真实 schedule（nextAt 次日 09:00）；发现两个 bridge bug 并已修（见下）。测试任务已删。
+- bridge 修复（已写入文件，**需下次 DSH 重启生效**）：
+  1. schedules edit/delete 需 `expectedUpdatedAt`（否则 409 schedule_conflict）——现自动先 list 查当前 updatedAt（或用 body.updatedAt）。
+  2. timingText 兼容 ScheduleRecord 扁平形状（daily 记录是 {kind,time,timeZone} 而非 {kind,daily:{...}}），此前显示「每天  ()」空值。
+
+### 待下次重启后复核
+- schedules pause/edit/delete（修复后）；team board（需有 agentTeam 的会话）；workflow 编排卡（需 workflow 运行）。

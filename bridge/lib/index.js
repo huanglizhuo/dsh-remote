@@ -2259,12 +2259,15 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         if (!svc || typeof svc.list !== 'function') return json(res, 409, { error: 'schedule unavailable' })
         const timingText = (t) => {
           if (!t) return ''
-          if (t.kind === 'cron') return `cron ${t.expression} (${t.timeZone ?? ''})`
+          // Records flatten timing onto the entry itself: {kind, time?, timeZone?,
+          // expression?, rrule?, weekdays?, every_seconds?/after_seconds?/at?}.
+          const days = (t.weekdays ?? []).map((d) => `周${'日一二三四五六'[Number(d) % 7] ?? ''}`).join('')
+          if (t.kind === 'cron') return `cron ${t.expression ?? ''} (${t.timeZone ?? ''})`
           if (t.kind === 'rrule') return String(t.rrule ?? '').split('\n').filter(Boolean).pop() ?? ''
-          if (t.kind === 'daily') return `每天 ${t.daily?.time ?? ''} (${t.daily?.time_zone ?? ''})`
-          if (t.kind === 'weekly') return `每周 ${t.weekly?.time ?? ''} (${t.weekly?.time_zone ?? ''})`
-          if (t.kind === 'every') return `每 ${Math.round(Number(t.every_seconds ?? 0) / 60)} 分钟`
-          if (t.kind === 'after') return `${Math.round(Number(t.after_seconds ?? 0) / 60)} 分钟后`
+          if (t.kind === 'daily') return `每天 ${String(t.time ?? t.daily?.time ?? '').slice(0, 5)} (${t.timeZone ?? t.daily?.time_zone ?? ''})`
+          if (t.kind === 'weekly') return `每周${days} ${String(t.time ?? t.weekly?.time ?? '').slice(0, 5)} (${t.timeZone ?? t.weekly?.time_zone ?? ''})`
+          if (t.kind === 'every') return `每 ${Math.round(Number(t.every_seconds ?? t.every?.every_seconds ?? 0) / 60)} 分钟`
+          if (t.kind === 'after') return `${Math.round(Number(t.after_seconds ?? t.after?.after_seconds ?? 0) / 60)} 分钟后`
           if (t.kind === 'at') return `at ${typeof t.at === 'string' ? t.at : `${t.at?.date ?? ''} ${t.at?.time ?? ''}`}`
           return t.kind ?? ''
         }
@@ -2296,6 +2299,16 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
           }
           if (parts.length === 4 && req.method === 'POST') {
             const id = decodeURIComponent(parts[2])
+            // Optimistic concurrency: edits and deletes carry the entry's current
+            // updatedAt (from a fresh list lookup, else the client's copy).
+            const currentUpdatedAt = async () => {
+              if (typeof body.updatedAt === 'string' && body.updatedAt !== '') return body.updatedAt
+              try {
+                const listed = await svc.list({ limit: 100 })
+                const hit = (Array.isArray(listed?.items) ? listed.items : []).find((t) => String(t?.id ?? '') === id)
+                return hit?.updatedAt ?? null
+              } catch { return null }
+            }
             if (parts[3] === 'run') { await svc.run({ id }); return json(res, 200, { ok: true }) }
             if (parts[3] === 'edit') {
               const patch = {}
@@ -2303,12 +2316,12 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
               if (typeof body.prompt === 'string' && body.prompt.trim() !== '') patch.prompt = body.prompt.trim()
               if (body.active === true || body.active === false) patch.active = body.active
               if (body.timing && typeof body.timing === 'object') patch.timing = body.timing
-              const result = await svc.edit({ id, action: 'update', patch, expectedUpdatedAt: null })
+              const result = await svc.edit({ id, action: 'update', patch, expectedUpdatedAt: await currentUpdatedAt() })
               if (result && typeof result === 'object' && result.code) return json(res, 409, { error: String(result.code) })
               return json(res, 200, { ok: true, task: mapTask(result) })
             }
             if (parts[3] === 'delete') {
-              const result = await svc.edit({ id, action: 'delete', expectedUpdatedAt: null })
+              const result = await svc.edit({ id, action: 'delete', expectedUpdatedAt: await currentUpdatedAt() })
               if (result && typeof result === 'object' && result.code) return json(res, 409, { error: String(result.code) })
               return json(res, 200, { ok: true })
             }

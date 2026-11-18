@@ -768,11 +768,11 @@ component Mobile
   action openFile(p: string)
     imgFull = ""
     filePath = p
-    nav = push(go(nav, "/"), path("viewer"))
+    nav = push(nav, path("viewer"))
   action openImage(u: string)
     filePath = ""
     imgFull = u
-    nav = push(go(nav, "/"), path("viewer"))
+    nav = push(nav, path("viewer"))
   action openSchedules
     nav = push(go(nav, "/"), path("schedules"))
   action editSchedTitle(v: string)
