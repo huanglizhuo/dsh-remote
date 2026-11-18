@@ -2204,9 +2204,11 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         if (!svc || typeof svc.put !== 'function') return json(res, 409, { error: 'feedback unavailable' })
         try {
           if (req.method === 'GET') {
-            const listed = await svc.list({ sessionId: id })
+            const raw = await svc.list({ sessionId: id })
+            // Remote services wrap results: {ok, value}; unwrap either shape.
+            const listed = raw && typeof raw === 'object' && 'value' in raw ? raw.value : raw
             const items = Array.isArray(listed?.items) ? listed.items : Array.isArray(listed) ? listed : []
-            return json(res, 200, { items: items.map((it) => ({ messageId: Number(it?.messageId ?? 0), rating: String(it?.rating ?? '') })) })
+            return json(res, 200, { items: items.map((it) => ({ messageId: String(it?.messageId ?? ''), rating: String(it?.rating ?? '') })) })
           }
           const body = await readBody(req)
           const rating = body.rating === 'negative' ? 'negative' : 'positive'

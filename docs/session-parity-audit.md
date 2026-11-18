@@ -214,3 +214,9 @@ A1 文件查看屏 → B5 定时任务 → A4 reasoning 全文 → B8 反馈 not
 
 ### D12 验证说明（第八轮）
 done-toast 为 `wasRunning → not snap.running` 边沿触发 + 4 秒自动清除。两次 iOS 驱动尝试（Ping 会话真实 prompt）未在驱动轮询窗口内捕获到 toast 展示帧（回复完成时机与 2.5s 采样步长错开）；逻辑代码路径简单，待日常使用中自然复核。
+
+### 终验（重启后，goal-09734780 收尾）
+- ✅ **B8 反馈**：iOS 真机 👎→note 输入→发送，Mac 侧 messageFeedback.list 确认落库（negative + note）后清理。msgId 全链路（bridge 合并回合 → wire → 合同）工作正常。
+- ✅ **B5 schedules**：真实服务全链路——create（daily 21:30）→ list（timingText「每天 21:30 (Asia/Shanghai)」）→ edit+pause（改名+status paused，无 409）→ delete（list 清空）。
+- 顺带修复：feedback GET list 需解 Remote 服务 {ok,value} 包装（文件已改，下次重载生效；手机端当前不用 GET）。
+- 终态：A1/A2/A4/B5/B7/B8/B9/C11 真机或真实服务验证；A3 受当前模型无图片输入限制（viewer 基建与 A1 共享已验证）；B6 子代理跳转已有+team board 渲染就绪（无 agentTeam 会话数据可验证）；C10 上游 prompt 仅支持 text+image；D13 移动端以 running 脉冲等价呈现（有意）；D12 边沿逻辑就绪待自然复核。
