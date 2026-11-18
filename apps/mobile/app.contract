@@ -14,6 +14,7 @@ shape SessionRow
   group: string
   first: bool
   when: string
+  archived: bool
 
 shape MdItem
   id: string
@@ -56,6 +57,7 @@ shape TodoItem
   id: string
   text: string
   state: string
+  change: string
 
 shape ChoiceItem
   id: string
@@ -85,7 +87,9 @@ shape BlockRow
   args: string
   lazy: bool
   badge: string
+  todoSummary: string
   diffs: DiffFile[]
+  diffHidden: number
   todos: TodoItem[]
   files: FileRow[]
   question: string
@@ -106,11 +110,24 @@ shape MessageRow
   tools: number
   running: number
   thought: bool
+  failed: bool
+  thoughtPreview: string
+  changedCount: number
+  day: string
+  deliverables: FileRow[]
+  refs: FileRow[]
+  usageTokens: option<UsageTokens>
   interrupted: bool
   took: number
   folded: number
   shadow: number
   blocks: BlockRow[]
+
+shape UsageTokens
+  in: number
+  out: number
+  cacheRead: number
+  reasoning: option<number>
 
 shape ModelRow
   id: string
@@ -142,6 +159,7 @@ shape ApprovalRow
   reason: string
   summary: string
   args: string
+  command: string
   plan: string
   expiresIn: number
 
@@ -197,6 +215,36 @@ shape FileRow
   path: string
   text: string
 
+shape TaskRow
+  id: string
+  title: string
+  prompt: string
+  status: string
+  kind: string
+  timing: string
+  nextAt: string
+  updatedAt: string
+  targetSessionId: string
+
+shape TeamRow
+  id: string
+  taskId: string
+  subject: string
+  status: string
+  owner: string
+
+shape FileDoc
+  ok: bool
+  kind: string
+  media: string
+  name: string
+  bytes: number
+  text: string
+  url: string
+
+shape SchedulesReply
+  items: TaskRow[]
+
 shape QueueRow
   id: string
   text: string
@@ -210,6 +258,16 @@ shape QuestionRow
   qid: string
   multi: bool
   kind: string
+  options: ChoiceItem[]
+  items: QuestionItem[]
+  expiresIn: number
+
+shape QuestionItem
+  id: string
+  header: string
+  question: string
+  detail: string
+  multi: bool
   options: ChoiceItem[]
 
 shape PlanStep
@@ -247,11 +305,18 @@ shape Snapshot
   todos: TodoRow[]
   jobs: JobRow[]
   subagents: SubagentRow[]
+  team: TeamRow[]
   question: option<QuestionRow>
   streamText: string
   streamReasoning: string
   streamTools: BlockRow[]
   balance: option<BalanceView>
+  context: option<ContextRow>
+  quota: string
+
+shape ContextRow
+  used: number
+  total: number
 
 shape Rows
   rev: string
@@ -308,6 +373,8 @@ routes nav
       find "/chat/:id/find"
       perm "/chat/:id/perm"
       jobs "/chat/:id/jobs"
+    viewer "/file"
+    schedules "/schedules"
     settings "/settings"
     scan "/scan"
     open "/open"
@@ -321,6 +388,7 @@ component Mobile
   state code = ""
   state draft = ""
   state scanTrack = ""
+  state scanTried = ""
   state renameDraft = ""
   state scanNote = ""
   state query = ""
@@ -358,6 +426,13 @@ component Mobile
   // Optimistic send: the bubble appears instantly; the server row replaces it.
   state echoText = ""
   state verbose = false persist
+  // Mirrors the desktop view-options archived filter: hidden by default, a
+  // Settings toggle mixes archived rows back in (grayed).
+  state showArchived = false persist
+  state ratedMark = ""
+  state quotaSeen = ""
+  state qCustoms: string[] = []
+  state qPicks: string[] = []
   state lang = "" persist
   state lastFork = ""
   state effortModel = ""
@@ -366,7 +441,7 @@ component Mobile
   // moves, so an idle session stops re-carrying its whole history.
   state listRows: SessionRow[] = []
   state listRev = ""
-  resource live = loadLive(server, token, selected, listRev) when token != "" as shape Snapshot else empty()
+  resource live = loadLive(server, token, selected, listRev, showArchived) when token != "" as shape Snapshot else empty()
   resource rows = loadRows(server, token, selected, take, live.rowsRev) when token != "" and selected != "" as shape Rows else empty()
   derive snap = Snapshot(live, sessions=(listRows.length > 0 ? listRows : live.sessions), messages=(selected == "" ? [] : rows.rows), hasMore=(selected == "" ? false : rows.hasMore))
   resource view = exactViewport() as shape Viewport
@@ -377,15 +452,31 @@ component Mobile
   derive qId = match snap.question { case some(q) => q.id, case none => "" }
   derive qQid = match snap.question { case some(q) => q.qid, case none => "" }
   derive qOptions = match snap.question { case some(q) => q.options, case none => [] }
+  derive qItems = match snap.question { case some(q) => q.items, case none => [] }
+  derive qExpires = match snap.question { case some(q) => q.expiresIn, case none => 0 }
+  // Desktop expands the transcript while a turn runs and collapses it once it
+  // settles; the switch in Settings is the override that keeps it open.
+  derive verboseLive = verbose or snap.running
   derive still = view.prefersReducedMotion
   mutation detail as shape CallDetail
   mutation sent as shape Reply refreshes live then afterSend
   mutation uploaded as shape UploadReply then afterUpload
+  state filePath = ""
+  state imgFull = ""
+  state schedTitle = ""
+  state schedPrompt = ""
+  state schedTiming = ""
+  state noteMark = 0
+  state noteDraft = ""
+  state doneToast = ""
+  state wasRunning = false
   state attachId = ""
   state attachName = ""
   state attachErr = ""
   mutation stopped as shape Reply refreshes live
   mutation answered as shape Reply refreshes live
+  mutation allAnswered as shape Reply refreshes live
+  mutation rated as shape Reply
   mutation decided as shape Reply refreshes live
   mutation replied as shape Reply refreshes live
   mutation skipped as shape Reply refreshes live
@@ -394,6 +485,9 @@ component Mobile
   mutation queueSaved as shape Reply refreshes live
   mutation goalSet as shape Reply refreshes live
   mutation jobKilled as shape Reply refreshes live
+  mutation schedSaved as shape Reply refreshes sched
+  mutation schedRan as shape Reply refreshes sched
+  mutation schedDeleted as shape Reply refreshes sched
   mutation flagged as shape Reply refreshes live then afterFlag
   mutation forkedHere as shape Created refreshes live
   mutation paired as shape PairReply then afterPair
@@ -408,11 +502,15 @@ component Mobile
   resource models = loadModels(server, token, selected) when selected != "" and top(nav).name == "models" as shape ModelsReply else empty()
   resource devices = loadDevices(server, token) when top(nav).name == "settings" as shape DevicesReply else empty()
   resource commands = loadCommands(server, token, selected) when selected != "" as shape CommandsReply else empty()
+  resource file = loadFile(server, token, selected, filePath) when top(nav).name == "viewer" and filePath != "" as shape FileDoc else empty()
+  resource sched = loadSchedules(server, token) when top(nav).name == "schedules" as shape SchedulesReply else empty()
   mutation chose as shape Reply refreshes live then afterModel
   mutation executed as shape Reply refreshes live then afterExecuted
   resource scan = detectedBarcodes(track=scanTrack, formats=["qr_code"], interval=200) when scanTrack != "" as shape BarcodeScan else empty()
   derive backCamera = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some("environment"), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
   derive selected = match stack(nav).filter(e => e.name == "chat").at(-1) { case some(e) => e.params.id, case none => "" }
+  derive mentionTail = draft.includes("@") ? match draft.split("@").at(-1) { case some(t) => t, case none => "" } : " "
+  derive mentionRows = (mentionTail != " " and not mentionTail.includes(" ")) ? snap.sessions.filter(x => (x.title == "" ? "untitled" : x.title).toLowerCase().includes(mentionTail.toLowerCase())).slice(0, 6) : []
   derive signedIn = token != ""
   derive sendError = match sent { case some(r) => r.error, case none => "" }
   derive pairError = match paired { case some(r) => r.error, case none => "" }
@@ -424,6 +522,9 @@ component Mobile
   derive dArgs = match detail { case some(d) => d.args, case none => "" }
   derive dResult = match detail { case some(d) => d.result, case none => "" }
   derive linkStale = failsSinceOk >= 2
+  // A 401 from the bridge: the stored pairing token was dropped on the Mac side
+  // (state reset or revocation). Only a re-scan fixes it — the network is fine.
+  derive authStale = match failure(live) { case some(f) => f.message == "unauthorized", case none => false }
   derive createdId = match created { case some(r) => r.id, case none => "" }
   derive forkedId = match forked { case some(r) => r.id, case none => "" }
   derive forkedHereId = match forkedHere { case some(r) => r.id, case none => "" }
@@ -434,6 +535,7 @@ component Mobile
   derive stIn = (snap.stats.inTok >= 1000000 ? `${floor(snap.stats.inTok / 1000000)}M` : snap.stats.inTok >= 1000 ? `${floor(snap.stats.inTok / 1000)}k` : `${snap.stats.inTok}`)
   derive stOut = (snap.stats.outTok >= 1000000 ? `${floor(snap.stats.outTok / 1000000)}M` : snap.stats.outTok >= 1000 ? `${floor(snap.stats.outTok / 1000)}k` : `${snap.stats.outTok}`)
   derive stCache = (snap.stats.cacheRead >= 1000000 ? `${floor(snap.stats.cacheRead / 1000000)}M` : snap.stats.cacheRead >= 1000 ? `${floor(snap.stats.cacheRead / 1000)}k` : `${snap.stats.cacheRead}`)
+  derive stAvg = ((snap.stats.inTok + snap.stats.cacheRead + snap.stats.outTok) / (snap.stats.turns < 1 ? 1 : snap.stats.turns) >= 1000 ? `${floor((snap.stats.inTok + snap.stats.cacheRead + snap.stats.outTok) / (snap.stats.turns < 1 ? 1 : snap.stats.turns) / 1000)}k` : `${floor((snap.stats.inTok + snap.stats.cacheRead + snap.stats.outTok) / (snap.stats.turns < 1 ? 1 : snap.stats.turns))}`)
   derive todoDone = snap.todos.filter(t => t.state == "completed").length
   derive todoTotal = snap.todos.length
   derive canSend = draft.trim() != "" and not pending(sent) and selected != ""
@@ -447,13 +549,19 @@ component Mobile
       tools=snap.streamTools.length,
       running=snap.streamTools.filter(t => t.status == "running").length,
       thought=false,
+      failed=false,
+      thoughtPreview="",
+      changedCount=0, day="",
+      deliverables=[],
+      refs=[],
+      usageTokens=none,
       interrupted=false,
       took=0,
       folded=0,
       shadow=0,
       blocks=[BlockRow(
         child="", lazy=false, id="streaming-text", kind="text",
-      text=snap.streamText, detail="", status="", result="", nodes=[], callId="", icon="", summary="", args="", badge="", diffs=[], todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])].concat(snap.streamTools))]))
+      text=snap.streamText, detail="", status="", result="", nodes=[], callId="", icon="", summary="", args="", badge="", todoSummary="", diffs=[], diffHidden=0, todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])].concat(snap.streamTools))]))
   derive goalRow = (snap.goal == "" and snap.plan.steps.length == 0 ? [] : [MessageRow(
       id="goal", role="goal",
       seq=-1,
@@ -463,18 +571,24 @@ component Mobile
       tools=0,
       running=0,
       thought=false,
+      failed=false,
+      thoughtPreview="",
+      changedCount=0, day="",
+      deliverables=[],
+      refs=[],
+      usageTokens=none,
       interrupted=false,
       took=0,
       folded=0,
       shadow=0,
       blocks=snap.plan.steps.map(step => BlockRow(
           child="", lazy=false, id=step.id, kind="plan",
-      text=step.text, detail="", status=step.state, result="", nodes=[], callId="", icon="", summary="", args="", badge="", diffs=[], todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])))])
+      text=step.text, detail="", status=step.state, result="", nodes=[], callId="", icon="", summary="", args="", badge="", todoSummary="", diffs=[], diffHidden=0, todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])))])
   // A fork child: desktop's InheritedHistory separator at the transcript top.
-  derive seedRow = (snap.inherited and snap.messages.length > 0 ? [MessageRow(id="seed", role="seed", seq=0, text="", plain="", usage="", tools=0, running=0, thought=false, interrupted=false, took=0, folded=0, shadow=0, blocks=[])] : [])
+  derive seedRow = (snap.inherited and snap.messages.length > 0 ? [MessageRow(id="seed", role="seed", seq=0, text="", plain="", usage="", tools=0, running=0, thought=false, failed=false, thoughtPreview="", changedCount=0, day="", deliverables=[], refs=[], usageTokens=none, interrupted=false, took=0, folded=0, shadow=0, blocks=[])] : [])
   derive thread = seedRow.concat(goalRow.concat(body))
   derive matchRows = snap.messages.filter(m => findQ.trim() != "" and m.text.toLowerCase().includes(findQ.trim().toLowerCase()))
-  derive findRows = [MessageRow(id="find-note", role="note", seq=0, plain="", tools=0, running=0, thought=false, interrupted=false, took=0, folded=0, shadow=0, text=(`${matchRows.length} ${matchRows.length == 1 ? "match" : "matches"} in the ${snap.messages.length} ${snap.messages.length == 1 ? "message" : "messages"} loaded here. Older messages load with "Load earlier".`), usage="", blocks=[])].concat(matchRows)
+  derive findRows = [MessageRow(id="find-note", role="note", seq=0, plain="", tools=0, running=0, thought=false, failed=false, thoughtPreview="", changedCount=0, day="", deliverables=[], refs=[], usageTokens=none, interrupted=false, took=0, folded=0, shadow=0, text=(`${matchRows.length} ${matchRows.length == 1 ? "match" : "matches"} in the ${snap.messages.length} ${snap.messages.length == 1 ? "message" : "messages"} loaded here. Older messages load with "Load earlier".`), usage="", blocks=[])].concat(matchRows)
   derive slashMatches = commands.commands.filter(c => ("/" + c.name).startsWith(draft.trim().toLowerCase()) and draft.trim() != "/" + c.name)
   derive lastId = match snap.messages.at(-1) { case some(m) => m.id, case none => "" }
   // Entering a session lands on the newest content: the tail of the last message when the
@@ -491,6 +605,16 @@ component Mobile
   // It never writes nav (a change task may not touch its gate); the view offers the way in.
   task openPair when top(nav).name == "open" key=top(nav).id
     change(openLink)
+
+  // The viewfinder recognized a code: pair at once. A timer task (not a
+  // change task) — afterLink stops the camera, which is this trigger's input.
+  task doneWatch when token != "" and selected != "" key=snap.running
+    change(checkDone)
+
+  task toastClear when doneToast != ""
+    after(4000, clearDoneToast)
+  task scanWatch mount
+    every(300, tryAutoPair)
 
   derive openUrl = searchParam(top(nav), "u")
   derive deepError = match deepLinked { case some(r) => r.error, case none => "" }
@@ -513,6 +637,12 @@ component Mobile
   action goHome
     nav = go(nav, "/")
 
+  // TurnNavigator parity (mobile): one chip per loaded turn; tapping scrolls
+  // the transcript to that turn's prompt.
+  derive turnRows = snap.messages.filter(m => m.role == "user")
+  action jumpTurn(id: string)
+    stick = false
+    scrollIntoView("transcript", id, block="start", behavior="smooth")
   action jumpLatest
     if lastId != ""
       scrollIntoView("transcript", lastId, block="start", behavior="smooth")
@@ -611,7 +741,9 @@ component Mobile
       send forked = forkSession(server, token, selected)
   action afterFork
     if forkedId != ""
-      nav = go(nav, path("chat", forkedId))
+      // Land on the fork as a chat pushed over the session list, so the back
+      // gesture returns to the list instead of leaving the app.
+      nav = push(go(nav, "/"), path("chat", forkedId))
   action renameSession
     if selected != "" and renameDraft.trim() != "" and not pending(renamed)
       send renamed = renameSession(server, token, selected, renameDraft.trim())
@@ -632,6 +764,58 @@ component Mobile
     nav = push(nav, path("chat", id))
   action openChild(id: string)
     nav = push(nav, path("chat", id))
+
+  action openFile(p: string)
+    imgFull = ""
+    filePath = p
+    nav = push(go(nav, "/"), path("viewer"))
+  action openImage(u: string)
+    filePath = ""
+    imgFull = u
+    nav = push(go(nav, "/"), path("viewer"))
+  action openSchedules
+    nav = push(go(nav, "/"), path("schedules"))
+  action editSchedTitle(v: string)
+    schedTitle = v
+  action editSchedPrompt(v: string)
+    schedPrompt = v
+  action editSchedTiming(v: string)
+    schedTiming = v
+  action newSchedule
+    if schedTitle.trim() != "" and schedPrompt.trim() != "" and not pending(schedSaved)
+      send schedSaved = createSchedule(server, token, schedTitle.trim(), schedPrompt.trim(), schedTiming)
+      schedTitle = ""
+      schedPrompt = ""
+  action toggleSched(id: string, active: bool)
+    if not pending(schedSaved)
+      send schedSaved = editSchedule(server, token, id, active ? `{"active":false}` : `{"active":true}`)
+  action delSched(id: string)
+    if not pending(schedDeleted)
+      send schedDeleted = deleteSchedule(server, token, id)
+  action runSched(id: string)
+    if not pending(schedRan)
+      send schedRan = runSchedule(server, token, id)
+  action openNote(seq: number)
+    noteMark = seq
+    noteDraft = ""
+  action editNote(v: string)
+    noteDraft = v
+  action sendNote
+    if noteMark > 0 and not pending(rated)
+      send rated = rateMessage(server, token, selected, noteMark, "negative", noteDraft)
+      noteMark = 0
+      noteDraft = ""
+  action closeNote
+    noteMark = 0
+    noteDraft = ""
+  action pickMention(name: string)
+    draft = `${draft.split("@").slice(0, -1).join("@")}${name} `
+  action clearDoneToast
+    doneToast = ""
+  action checkDone
+    if wasRunning and not snap.running
+      doneToast = t("chat.done")
+    wasRunning = snap.running
 
   action openJobs
     nav = push(nav, path("jobs", selected))
@@ -699,6 +883,11 @@ component Mobile
   action setVerbose(on: bool)
     verbose = on
 
+  // Toggling flips the bridge's list fingerprint, so the next poll carries the
+  // full list again — no cursor to reset.
+  action setShowArchived(on: bool)
+    showArchived = on
+
   action toggleTodos
     showTodos = not showTodos
 
@@ -747,7 +936,12 @@ component Mobile
   action toggleProcess(id: string)
     openProcess = (openProcess == id ? "" : id)
   action follow(url: string)
-    nav = go(nav, url)
+    // A chat link from a message body: keep the list under it so the back
+    // gesture pops to the list instead of exiting the app.
+    if url == "/"
+      nav = go(nav, "/")
+    else
+      nav = push(go(nav, "/"), url)
   action toSettings
     nav = push(nav, "/settings")
   action revokeDevice(id: string)
@@ -766,6 +960,7 @@ component Mobile
       nav = back(nav)
   action openScan
     scanNote = ""
+    scanTried = ""
     send opened = getUserMedia(video=true, videoConstraints=backCamera)
     nav = push(nav, "/scan")
   // The camera answered; a scan screen that was left while it asked stops the track.
@@ -782,6 +977,12 @@ component Mobile
   action connect(raw: string)
     if not pending(scanned)
       send scanned = pairFromLink(raw)
+  // Fired by scanWatch: one shot per recognized code, so a failed pair
+  // waits for the person's retry instead of looping.
+  action tryAutoPair
+    if top(nav).name == "scan" and firstCode != "" and scanTried != firstCode and not pending(scanned)
+      scanTried = firstCode
+      send scanned = pairFromLink(firstCode)
   action afterLink
     if match scanned { case some(r) => r.ok, case none => false }
       server = match scanned { case some(r) => r.server, case none => server }
@@ -865,6 +1066,41 @@ component Mobile
     if not pending(skipped)
       send skipped = skipQuestion(server, token, qid)
 
+  // A fresh question request starts with empty picks and custom answers.
+  task resetQuestion when qId != "" key=qId
+    change(resetQ)
+  action resetQ
+    qPicks = qItems.map(q => "")
+    qCustoms = qItems.map(q => "")
+
+  // One tap toggles one option of one question; the confirm button answers all.
+  action togglePick(i: number, label: string)
+    let cur = match qPicks.at(i) { case some(v) => v, case none => "" }
+    let multi = match qItems.at(i) { case some(q) => q.multi, case none => false }
+    let parts = cur.split("|").filter(v => v != "")
+    let next = (multi ? (parts.includes(label) ? parts.filter(v => v != label).join("|") : (cur == "" ? label : `${cur}|${label}`)) : label)
+    qPicks = qPicks.map((v, j) => j == i ? next : v)
+  action editCustom(i: number, v: string)
+    qCustoms = qCustoms.map((x, j) => j == i ? v : x)
+  // QuestionComposer parity: one submit answers every question — picked options
+  // plus typed custom answers — encoded as `id<TAB>picks…<TAB>custom` lines.
+  action sendAllAnswers
+    if not pending(allAnswered)
+      send allAnswered = answerQuestions(server, token, qId, qItems.map((q, i) => `${q.id}\t${match qPicks.at(i) { case some(v) => v, case none => "" }}\t${match qCustoms.at(i) { case some(v) => v, case none => "" }}`).join("\n"))
+      qPicks = qPicks.map(v => "")
+      qCustoms = qCustoms.map(v => "")
+  // Message feedback (desktop's thumbs on an assistant turn).
+  action rateMsg(seq: number, rating: string)
+    ratedMark = `${seq}:${rating}`
+    if not pending(rated)
+      send rated = rateMessage(server, token, selected, seq, rating, "")
+  // Quote the first line of a turn into the composer, desktop's selection reply.
+  action quoteBody(v: string)
+    let line = match v.split("\n").at(0) { case some(l) => l, case none => "" }
+    draft = `> ${line}\n${draft}`
+  action dismissQuota
+    quotaSeen = snap.quota
+
   action dropQueued(itemId: string)
     if not pending(dequeued)
       send dequeued = dropQueued(server, token, selected, itemId)
@@ -892,7 +1128,7 @@ component Mobile
         if e.name == "sessions"
           column navigationKey=`${e.id}` navigationScroll="sessions-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
             row display="flex" flex-wrap="wrap" align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
-              text "DSHRemote" role="heading" aria-level=1 flex=1 testId="app-title"
+              text "deepseek" role="heading" aria-level=1 flex=1 testId="app-title"
               if signedIn
                 button press=openScan aria-label="Scan a pairing code" testId="scan-now"
                   image "symbol:photo"
@@ -901,7 +1137,7 @@ component Mobile
               button press=toSettings aria-label=t("settings.title") testId="settings"
                 image "symbol:settings"
             row gap=6 align-items="baseline" padding="2px 16px 4px 16px" testId="version-line"
-              text "dsh-remote 0.1.0" font-size="0.62rem" color="-exact-tertiary-label"
+              text t("app.version") font-size="0.62rem" color="-exact-tertiary-label" testId="app-version"
               text t("ota.channel") font-size="0.62rem" color="-exact-tertiary-label"
             match snap.balance
               case some(bal)
@@ -922,7 +1158,7 @@ component Mobile
                   text t("pair.pair")
                 row press=openScan align-items="center" min-height=44 padding="0 8px" testId="scan-now"
                   text t("list.scanMac") color="-exact-secondary-label" font="-exact-subheadline"
-            if signedIn and not everOk and not linkStale
+            if signedIn and not everOk and not linkStale and not authStale
               column padding=24 gap=10 align-items="center" testId="connecting"
                 image "assets/whale.svg" width=44 height=44 color="brand.fill"
                 text t("pair.connecting") font="-exact-subheadline" color="-exact-secondary-label"
@@ -937,6 +1173,14 @@ component Mobile
                   text t("ws.default") flex=1 min-width=0 font-size="0.75rem"
                 row press=cancelNew justify-content="center" padding="6px 0" testId="ws-cancel"
                   text t("common.cancel") font-size="0.75rem" color="-exact-secondary-label"
+            if authStale
+              // The Mac no longer knows this phone's token (bridge state reset or
+              // revoked): the list would sit frozen on stale rows — say so and re-pair.
+              column padding=16 gap=10 align-items="center" background-color="surface.card"
+                image "symbol:alert" width=28 height=28 color="brand.fill"
+                text t("pair.expired") font="-exact-subheadline" color="-exact-secondary-label" text-align="center" testId="auth-stale"
+                button press=openScan buttonStyle="filled" testId="repair-scan"
+                  text t("pair.repair")
             if linkStale
               column padding=16 gap=10 align-items="center" background-color="surface.card"
                 text t("pair.unreachable") font="-exact-footnote" color="-exact-secondary-label" text-align="center" testId="stale-note"
@@ -955,7 +1199,7 @@ component Mobile
                 for s in shown key=s.id
                   column gap=0
                     if s.first and query.trim() == ""
-                      text s.group font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding="14px 16px 4px 16px" testId=`group-${s.id}`
+                      text (s.group == "" ? t("list.ungrouped") : s.group) font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding="14px 16px 4px 16px" testId=`group-${s.id}`
                     row press=open(s.id) gap=12 align-items="center" padding="12px 16px"
                       // Leading status dot, like the desktop sidebar: filled while a turn runs, dim otherwise.
                       image "symbol:circle" font-size="0.45rem" color=(s.running ? "brand.fill" : "-exact-tertiary-label") animation=(s.running and not still ? "pulse 1.2s ease-in-out infinite" : "none") testId=`run-${s.id}`
@@ -963,7 +1207,7 @@ component Mobile
                         row gap=5 align-items="center"
                           if s.pinned
                             image "symbol:pin" font-size="0.55rem" color="brand.fill"
-                          text (s.title == "" ? "Untitled session" : s.title) font="-exact-body" testId=`session-${s.id}`
+                          text (s.title == "" ? "Untitled session" : s.title) font="-exact-body" color=(s.archived ? "-exact-tertiary-label" : "text.ink") testId=`session-${s.id}`
                         text (s.running ? t("list.running") : s.cwd) font="-exact-footnote" color=(s.running ? "brand.fill" : "-exact-secondary-label")
                       if s.when != ""
                         text s.when font="-exact-footnote" color="-exact-tertiary-label"
@@ -995,6 +1239,13 @@ component Mobile
             list id="transcript" testId="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=(stick) scroll=moved flex=1 min-height=0
               for m in thread key=m.id
                 column padding="4px 0" testId=`row-${m.id}`
+                  // use-calendar-day parity: a labeled rule wherever the local
+                  // calendar day changes between chronological rows.
+                  if m.day != ""
+                    row gap=8 align-items="center" padding="8px 12px 2px 12px" testId=`day-${m.seq}`
+                      hr flex=1
+                      text m.day font-size="0.69rem" color="-exact-tertiary-label"
+                      hr flex=1
                   if m.role == "seed"
                     row gap=8 align-items="center" padding="6px 12px" testId="seed-row"
                       hr flex=1
@@ -1009,6 +1260,34 @@ component Mobile
                         text m.text font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" padding="4px 0 4px 12px"
                   if m.role == "error"
                     text m.text font-size="0.72rem" color="-exact-system-red" padding="2px 12px" white-space="pre-wrap" testId=`err-${m.seq}`
+                  if m.role == "trigger"
+                    row gap=6 align-items="center" padding="2px 12px" testId=`trigger-${m.seq}`
+                      image "symbol:sparkles" font-size="0.6rem" color="-exact-tertiary-label"
+                      text m.text font-size="0.69rem" color="-exact-tertiary-label"
+                  if m.role == "injection"
+                    column gap=3 padding="2px 12px" press=toggleProcess(m.id) testId=`injection-${m.seq}`
+                      row gap=6 align-items="center"
+                        image "symbol:document" font-size="0.6rem" color="-exact-tertiary-label"
+                        text m.usage font-size="0.69rem" color="-exact-tertiary-label"
+                        text ((openProcess == m.id or verboseLive) ? t("common.collapse") : t("common.expand")) font-size="0.69rem" color="-exact-tertiary-label"
+                      if openProcess == m.id or verboseLive
+                        text m.text font-size="0.72rem" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
+                      else
+                        text m.text font-size="0.69rem" color="-exact-tertiary-label" line-clamp=2
+                  if m.role == "sysprompt"
+                    column gap=3 padding="2px 12px" press=toggleProcess(m.id) testId=`sysprompt-${m.seq}`
+                      row gap=6 align-items="center"
+                        image "symbol:document" font-size="0.6rem" color="-exact-tertiary-label"
+                        text t("chat.sysPrompt") font-size="0.69rem" color="-exact-tertiary-label"
+                        text ((openProcess == m.id or verboseLive) ? t("common.collapse") : t("common.expand")) font-size="0.69rem" color="-exact-tertiary-label"
+                      if openProcess == m.id or verboseLive
+                        text m.text font-size="0.72rem" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
+                      else
+                        text (m.plain != "" ? m.plain : m.text) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
+                  if m.role == "retry"
+                    row gap=6 align-items="center" padding="2px 12px" testId=`retry-${m.seq}`
+                      image "symbol:refresh" font-size="0.6rem" color="-exact-system-orange"
+                      text m.text font-size="0.72rem" color="-exact-system-orange" line-clamp=3
                   if m.role == "goal"
                     column gap=2
                       if m.text != ""
@@ -1019,8 +1298,14 @@ component Mobile
                           text (b.status == "completed" ? "●" : b.status == "in_progress" ? "◐" : "○") font-size="0.69rem" color=(b.status == "completed" ? "-exact-system-green" : b.status == "in_progress" ? "-exact-system-orange" : "-exact-tertiary-label")
                           text b.text font-size="0.75rem" color=(b.status == "completed" ? "-exact-tertiary-label" : "-exact-label") flex=1 min-width=0
                   if m.role == "user"
-                    row justify-content="flex-end"
+                    column gap=4 align-items="flex-end"
                       text m.text padding="8px 12px" border-radius=18 max-width="78%" white-space="pre-wrap" overflow-wrap="break-word" background-color="brand.fill" color="ink.on-brand"
+                      if m.refs.length > 0
+                        row gap=6 flex-wrap="wrap" justify-content="flex-end" testId=`refs-${m.seq}`
+                          for r in m.refs key=r.id
+                            row gap=4 align-items="center" padding="3px 8px" border-radius=8 background-color="surface.card"
+                              image "symbol:document" font-size="0.5rem" color="-exact-tertiary-label"
+                              text r.path font-size="0.62rem" color="-exact-secondary-label" line-clamp=1
                   else
                     if m.role == "assistant"
                       column gap=6 padding="2px 12px"
@@ -1031,41 +1316,51 @@ component Mobile
                               text ((m.took > 0 ? `${t("meta.steps", n=m.tools)} · ${m.took >= 3600 ? t("meta.hrs", n=floor(m.took / 3600)) : m.took >= 60 ? t("meta.mins", n=floor(m.took / 60)) : t("meta.secs", n=m.took)}` : t("meta.steps", n=m.tools))) font-size="0.75rem" color="-exact-secondary-label"
                               text (match first(m.blocks.filter(b => b.kind == "tool" and b.status == "running")) { case some(b) => b.text, case none => "" }) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
                             else
-                              image "symbol:checkmark" color="-exact-system-green"
+                              if m.failed
+                                image "symbol:alert" color="-exact-system-red" testId=`failed-${m.seq}`
+                              else
+                                image "symbol:checkmark" color="-exact-system-green"
                               if m.tools > 0
                                 text ((m.took > 0 ? `${t("meta.steps", n=m.tools)} · ${m.took >= 3600 ? t("meta.hrs", n=floor(m.took / 3600)) : m.took >= 60 ? t("meta.mins", n=floor(m.took / 60)) : t("meta.secs", n=m.took)}` : t("meta.steps", n=m.tools))) font-size="0.75rem" color="-exact-secondary-label"
                               else
                                 text t("chat.thought") font-size="0.75rem" color="-exact-secondary-label"
-                                if (openProcess == m.id or verbose) == false and m.plain != ""
+                                if (openProcess == m.id or verboseLive) == false and m.plain != ""
                                   text (m.plain.length > 42 ? `${m.plain.slice(0, 42)}…` : m.plain) font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
-                              text ((openProcess == m.id or verbose) ? t("common.collapse") : t("common.expand")) font-size="0.69rem" color="-exact-tertiary-label"
+                              text ((openProcess == m.id or verboseLive) ? t("common.collapse") : t("common.expand")) font-size="0.69rem" color="-exact-tertiary-label"
+                        // ReasoningRow parity: a settled turn with reasoning keeps a
+                        // one-line "thought" row that expands the full text.
+                        if m.tools > 0 and m.blocks.filter(b => b.kind == "reasoning").length > 0 and (openProcess == m.id or verboseLive) == false
+                          row press=toggleProcess(m.id) gap=6 align-items="center" padding="2px 0" testId=`thought-${m.seq}`
+                            text t("chat.thoughtDone") font-size="0.72rem" color="-exact-secondary-label"
+                            if m.thoughtPreview != ""
+                              text m.thoughtPreview font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1 flex=1 min-width=0
                         // Older turns arrive as text only (the window keeps their nodes out for size),
                         // so show that text rather than leaving the turn looking unanswered.
                         if m.plain != "" and m.blocks.filter(b => b.kind == "text" or (b.kind == "md" and b.nodes.length > 0)).length == 0
                           text m.plain white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
                         for b in m.blocks key=b.id
                           if b.kind == "text"
-                            text b.text white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
+                            text b.text white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}` animation=(m.id == "streaming" and snap.running and not still ? "pulse 1.6s ease-in-out infinite" : "none")
                           if b.kind == "md"
                             column gap=8
                               for n in b.nodes key=n.id
                                 column gap=2
                                   if n.t == "p"
-                                    text n.v white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
+                                    text n.v markup="markdown" white-space="pre-wrap" overflow-wrap="break-word" testId=`msg-${m.seq}`
                                   if n.t == "h"
-                                    text n.v font-size=(n.lvl <= 2 ? "1.06rem" : "0.94rem") font-weight=600 white-space="pre-wrap" overflow-wrap="break-word"
+                                    text n.v markup="markdown" font-size=(n.lvl <= 2 ? "1.06rem" : "0.94rem") font-weight=600 white-space="pre-wrap" overflow-wrap="break-word"
                                   if n.t == "ul"
                                     column gap=3
                                       for it in n.items key=it.id
                                         row gap=6 align-items="flex-start"
                                           text it.mark font-size="0.875rem" color="-exact-secondary-label"
-                                          text it.v font-size="0.94rem" white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
+                                          text it.v markup="markdown" font-size="0.94rem" white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
                                   if n.t == "ol"
                                     column gap=3
                                       for it in n.items key=it.id
                                         row gap=6 align-items="flex-start"
                                           text it.mark font-size="0.875rem" color="-exact-secondary-label"
-                                          text it.v font-size="0.94rem" white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
+                                          text it.v markup="markdown" font-size="0.94rem" white-space="pre-wrap" overflow-wrap="break-word" flex=1 min-width=0
                                   if n.t == "table"
                                     column gap=0 background-color="surface.card-strong" border-radius=8 padding="6px 8px"
                                       text n.head font-size="0.75rem" font-weight=600 white-space="pre-wrap" overflow-wrap="break-word"
@@ -1081,9 +1376,12 @@ component Mobile
                                       if n.lang != ""
                                         text n.lang font-size="0.69rem" color="-exact-tertiary-label"
                                       text n.v font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.81rem" white-space="pre-wrap" overflow-wrap="break-word"
+                                  if n.t == "math"
+                                    column background-color="surface.card" border-radius=10 padding="8px 10px" align-items="center"
+                                      text n.v font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.85rem" white-space="pre-wrap" overflow-wrap="break-word" testId=`math-${n.id}`
                                   if n.t == "quote"
                                     row background-color="surface.card" border-radius=8 padding="8px 10px"
-                                      text n.v font-size="0.875rem" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
+                                      text n.v markup="markdown" font-size="0.875rem" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
                                   if n.t == "hr"
                                     hr
                                   if n.t == "img"
@@ -1107,14 +1405,14 @@ component Mobile
                                               image `${server}/v1/file?p=${it.v}&s=${selected}&t=${token}` width=(it.dw > 0 ? it.dw : 320) height=(it.dh > 0 ? it.dh : 240) border-radius=10
                                             if it.alt != ""
                                               text it.alt font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
-                          if b.kind == "reasoning" and (openProcess == m.id or verbose)
+                          if b.kind == "reasoning" and (openProcess == m.id or verboseLive)
                             column background-color="surface.card" border-radius=8 padding="8px 10px" flex=1 min-width=0
                               text b.text font="-exact-caption1" color="-exact-secondary-label" white-space="pre-wrap" overflow-wrap="break-word"
                           if b.kind == "tool" and b.child != ""
                             row press=openChild(b.child) gap=6 align-items="center" padding="4px 0" testId=`child-${b.id}`
                               image "symbol:people" font-size="0.6rem" color="brand.fill"
                               text t("chat.openSubagent") font-size="0.69rem" color="brand.fill"
-                          if b.kind == "tool" and (openProcess == m.id or verbose)
+                          if b.kind == "tool" and (openProcess == m.id or verboseLive)
                             column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
                               row gap=6 align-items="center" press=toggleCall(b.callId) testId=`call-${b.callId}`
                                 image b.icon color="-exact-secondary-label"
@@ -1130,12 +1428,16 @@ component Mobile
                                 if b.status == "running"
                                   image "symbol:circle" color="-exact-system-orange"
                                 text (b.callId == openCall ? "−" : "+") font-size="0.75rem" color="-exact-tertiary-label"
+                              if b.todoSummary != ""
+                                text b.todoSummary font-size="0.69rem" color="-exact-tertiary-label" testId=`todosum-${b.id}`
                               if b.todos.length > 0
                                 column gap=3
                                   for t in b.todos key=t.id
                                     row gap=6 align-items="flex-start"
-                                      text (t.state == "completed" ? "●" : t.state == "in_progress" ? "◐" : "○") font-size="0.75rem" color=(t.state == "completed" ? "-exact-system-green" : t.state == "in_progress" ? "-exact-system-orange" : "-exact-tertiary-label")
-                                      text t.text font-size="0.81rem" color=(t.state == "completed" ? "-exact-tertiary-label" : "-exact-label") white-space="pre-wrap" flex=1 min-width=0
+                                      // todo-diff-model parity: ＋ added, － removed,
+                                      // orange marker for status/move updates.
+                                      text (t.change == "added" ? "＋" : t.change == "removed" ? "－" : t.state == "completed" ? "●" : t.state == "in_progress" ? "◐" : "○") font-size="0.75rem" color=(t.change == "added" ? "-exact-system-green" : t.change == "removed" ? "-exact-system-red" : t.change == "updated" ? "-exact-system-orange" : t.state == "completed" ? "-exact-system-green" : t.state == "in_progress" ? "-exact-system-orange" : "-exact-tertiary-label")
+                                      text t.text font-size="0.81rem" opacity=(t.change == "removed" ? 0.55 : 1) color=(t.state == "completed" ? "-exact-tertiary-label" : "-exact-label") white-space="pre-wrap" flex=1 min-width=0
                               if b.files.length > 0
                                 column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
                                   text t("chat.deliverables") font-size="0.69rem" color="-exact-tertiary-label"
@@ -1152,7 +1454,7 @@ component Mobile
                                   text t("question.onMac") font-size="0.69rem" color="-exact-tertiary-label"
                               if b.callId == openCall and b.images.length > 0
                                 for im in b.images key=im.id
-                                  image `${server}/v1/attachments/${im.att}?t=${token}` width=220 height=(im.w > 0 and im.h > 0 ? 220 * im.h / im.w : 160) border-radius=8 testId=`timg-${im.id}`
+                                  image `${server}/v1/attachments/${im.att}?t=${token}` width=220 height=(im.w > 0 and im.h > 0 ? 220 * im.h / im.w : 160) border-radius=8 press=openImage(`${server}/v1/attachments/${im.att}?t=${token}`) testId=`timg-${im.id}`
                               if b.callId == openCall and b.todos.length == 0 and b.question == ""
                                 if dCallId == b.callId and dArgs != ""
                                   text dArgs font-size="0.69rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=14
@@ -1164,6 +1466,8 @@ component Mobile
                                   text b.result font-size="0.75rem" color="-exact-secondary-label" white-space="pre-wrap" line-clamp=18
                                 if b.lazy and dCallId != b.callId
                                   text t("common.loadingMore") font-size="0.69rem" color="-exact-tertiary-label"
+                                if b.diffHidden > 0
+                                  text t("diff.moreFiles", n=b.diffHidden) font-size="0.69rem" color="-exact-tertiary-label" testId=`diffhidden-${b.id}`
                                 for d in b.diffs key=d.id
                                   column gap=2
                                     text `${d.path}  +${d.added} −${d.removed}` font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
@@ -1171,21 +1475,47 @@ component Mobile
                                       text `${ln.sign}${ln.text}` font-size="0.69rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" white-space="pre-wrap" overflow-wrap="break-word" color=(ln.sign == "+" ? "-exact-system-green" : ln.sign == "-" ? "-exact-system-red" : "-exact-tertiary-label")
                           if b.kind == "image" and b.att != ""
                             column gap=4
-                              image `${server}/v1/attachments/${b.att}?t=${token}` width=240 height=(b.w > 0 and b.h > 0 ? 240 * b.h / b.w : 180) border-radius=10 testId=`img-${b.id}`
+                              image `${server}/v1/attachments/${b.att}?t=${token}` width=240 height=(b.w > 0 and b.h > 0 ? 240 * b.h / b.w : 180) border-radius=10 press=openImage(`${server}/v1/attachments/${b.att}?t=${token}`) testId=`img-${b.id}`
                               if b.text != ""
                                 text b.text font-size="0.69rem" color="-exact-tertiary-label" line-clamp=1
                           if b.kind == "unsupported"
                             row gap=6 align-items="center" padding="6px 0"
                               text b.text font-size="0.81rem" color="-exact-secondary-label"
                               text "Not shown on the phone yet. Open it on the Mac." font-size="0.69rem" color="-exact-tertiary-label"
+                        // Turn-tail deliverables (ui-deliverables parity): presented
+                        // files and a changed-files count for write-class tools.
+                        if m.deliverables.length > 0 or m.changedCount > 0
+                          column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px" margin-top=4 testId=`deliverables-${m.seq}`
+                            text t("chat.deliverables") font-size="0.69rem" color="-exact-tertiary-label"
+                            for f in m.deliverables key=f.id
+                              column gap=2 press=openFile(f.path) testId=`dl-open-${f.id}`
+                                text f.path font-size="0.75rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" color="text.ink" line-clamp=2
+                                if f.text != ""
+                                  text f.text font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
+                            if m.changedCount > 0
+                              text t("chat.changedFiles", n=m.changedCount) font-size="0.69rem" color="-exact-tertiary-label"
                         if m.text != ""
                           row justify-content="flex-end" gap=8
                             row press=copyBody(m.text) padding="6px 8px" border-radius=8 testId=`copy-${m.seq}`
                               text t("common.copy") font-size="0.69rem" color="-exact-tertiary-label"
+                            row press=quoteBody(m.text) padding="6px 8px" border-radius=8 testId=`quote-${m.seq}`
+                              text t("chat.quote") font-size="0.69rem" color="-exact-tertiary-label"
+                            row press=rateMsg(m.seq, "positive") padding="6px 8px" border-radius=8 testId=`up-${m.seq}`
+                              text "👍" font-size="0.81rem" opacity=(ratedMark == `${m.seq}:positive` ? 1 : 0.45)
+                            row press=openNote(m.seq) padding="6px 8px" border-radius=8 testId=`down-${m.seq}`
+                              text "👎" font-size="0.81rem" opacity=(ratedMark == `${m.seq}:negative` ? 1 : 0.45)
                             row press=forkHere(m.seq) padding="6px 8px" border-radius=8 testId=`forkhere-${m.seq}`
                               text t("chat.fork") font-size="0.69rem" color="-exact-tertiary-label"
                         if m.usage != ""
                           text m.usage font-size="0.69rem" color="-exact-tertiary-label"
+                          // TurnUsagePanel parity: the four-bucket breakdown, shown
+                          // while the turn is expanded.
+                          match m.usageTokens
+                            case some(u)
+                              if openProcess == m.id or verboseLive
+                                text `输入 ${u.in} · 输出 ${u.out}${u.cacheRead > 0 ? ` · 缓存 ${u.cacheRead}` : ""}${match u.reasoning { case some(r) => ` · 思考 ${r}`, case none => "" }}` font-size="0.69rem" color="-exact-tertiary-label" testId=`usage-detail-${m.seq}`
+                            case none
+                              text ""
                         if m.interrupted
                           text t("chat.interrupted") font-size="0.69rem" color="-exact-secondary-label" testId=`stopped-${m.seq}`
                         if m.interrupted and lastUserText != "" and snap.running == false
@@ -1217,22 +1547,31 @@ component Mobile
                   text ""
             if snap.messages.length == 0 and snap.streamText == ""
               text t("chat.hint") font="-exact-footnote" color="-exact-secondary-label" padding="4px 16px"
+            if snap.quota != "" and quotaSeen != snap.quota
+              column padding="0 12px 6px 12px"
+                row press=dismissQuota gap=8 align-items="center" padding="8px 10px" background-color="surface.card-strong" border-radius=12 testId="quota-toast"
+                  image "symbol:alert" font-size="0.7rem" color="-exact-system-red"
+                  text snap.quota flex=1 min-width=0 font-size="0.72rem" color="-exact-system-red" line-clamp=3
             if snap.question != none
-              column gap=6 padding="10px 12px" background-color="surface.card" border-radius=12
-                if qHint != ""
-                  text qHint font-size="0.69rem" color="-exact-tertiary-label" testId="question-hint"
-                text qAsk font="-exact-body" font-weight=600 testId="question-ask"
-                if qDetail != ""
-                  text qDetail font="-exact-caption1" color="-exact-secondary-label" line-clamp=6
-                for o in qOptions key=o.id
-                  row press=pickOption(qId, qQid, o.text, qMulti) gap=8 align-items="center" padding="9px 12px" background-color=(picked.split("|").includes(o.text) ? "brand.fill" : "surface.card-strong") border-radius=10 testId=`option-${o.id}`
-                    column flex=1 min-width=0 gap=1
-                      text o.text font-size="0.81rem" color=(picked.split("|").includes(o.text) ? "ink.on-brand" : "text.ink")
-                      if o.description != ""
-                        text o.description font-size="0.69rem" color=(picked.split("|").includes(o.text) ? "ink.on-brand" : "-exact-tertiary-label") line-clamp=2
-                if qMulti
-                  row press=sendPicked(qId, qQid) justify-content="center" padding="8px 14px" border-radius=10 background-color=(picked == "" ? "surface.card-strong" : "brand.fill") opacity=(picked == "" or pending(replied) ? 0.6 : 1) testId="question-answer"
-                    text "Answer" font-size="0.81rem" font-weight=600 color=(picked == "" ? "text.ink" : "ink.on-brand")
+              column gap=8 padding="10px 12px" background-color="surface.card" border-radius=12
+                if qExpires > 0
+                  text t("question.countdown", n=qExpires) font-size="0.69rem" color="-exact-tertiary-label" testId="question-countdown"
+                for q, i in qItems key=q.id
+                  column gap=6 testId=`question-card-${i}`
+                    if q.header != ""
+                      text q.header font-size="0.69rem" color="-exact-tertiary-label" testId="question-hint"
+                    text q.question font="-exact-body" font-weight=600 testId=`question-ask-${i}`
+                    if q.detail != ""
+                      text q.detail font="-exact-caption1" color="-exact-secondary-label" line-clamp=6
+                    for o in q.options key=o.id
+                      row press=togglePick(i, o.text) gap=8 align-items="center" padding="9px 12px" background-color=((match qPicks.at(i) { case some(v) => v, case none => "" }).split("|").includes(o.text) ? "brand.fill" : "surface.card-strong") border-radius=10 testId=`option-${o.id}`
+                        column flex=1 min-width=0 gap=1
+                          text o.text font-size="0.81rem" color=((match qPicks.at(i) { case some(v) => v, case none => "" }).split("|").includes(o.text) ? "ink.on-brand" : "text.ink")
+                          if o.description != ""
+                            text o.description font-size="0.69rem" color=((match qPicks.at(i) { case some(v) => v, case none => "" }).split("|").includes(o.text) ? "ink.on-brand" : "-exact-tertiary-label") line-clamp=2
+                    input value=(match qCustoms.at(i) { case some(v) => v, case none => "" }) input=editCustom(i) placeholder=t("question.custom") aria-label=t("question.custom") testId=`question-custom-${i}` min-height=44 background-color="surface.card-strong" border-radius=10 padding="10px 12px" font-size="0.81rem"
+                row press=sendAllAnswers justify-content="center" padding="8px 14px" border-radius=10 background-color="brand.fill" opacity=(pending(allAnswered) ? 0.6 : 1) testId="question-answer"
+                  text "Answer" font-size="0.81rem" font-weight=600 color="ink.on-brand"
                 row press=answerOnMac(qId) justify-content="center" padding="6px 0"
                   text t("question.onMacShort") font-size="0.69rem" color="-exact-tertiary-label" testId="question-skip"
             if snap.queue.length > 0
@@ -1272,6 +1611,10 @@ component Mobile
                 for a in snap.approvals key=a.id
                   text t("approval.title") font="-exact-footnote" color="-exact-secondary-label"
                   text a.toolName font="-exact-body" font-weight=600 testId=`approval-${a.id}`
+                  // ApprovalCommand parity: the shell command the correlated call
+                  // wants to run, ahead of the JSON blob.
+                  if a.command != ""
+                    text a.command font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.75rem" color="text.ink" background-color="surface.card-strong" padding="6px 8px" border-radius=8 line-clamp=3 white-space="pre-wrap" testId=`approval-cmd-${a.id}`
                   if a.plan != ""
                     text a.plan font-size="0.8rem" color="text.ink" white-space="pre-wrap" line-clamp=24 testId=`approval-plan-${a.id}`
                   if a.args != "" and a.plan == ""
@@ -1280,7 +1623,7 @@ component Mobile
                     text a.summary font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="0.75rem" color="-exact-secondary-label" line-clamp=2
                   if a.reason != ""
                     text a.reason font="-exact-caption1" color="-exact-secondary-label" line-clamp=3
-                  text `Hands back to the Mac in ${a.expiresIn}s` font-size="0.69rem" color="-exact-tertiary-label"
+                  text t("question.countdown", n=a.expiresIn) font-size="0.69rem" color="-exact-tertiary-label" testId=`approval-countdown-${a.id}`
                   row gap=8 align-items="center"
                     row press=decide(a.id, true) padding="8px 14px" border-radius=10 background-color=(pending(answered) ? "surface.card-strong" : "brand.fill") opacity=(pending(answered) ? 0.6 : 1) testId=`allow-${a.id}`
                       text t("approval.allowOnce") font-size="0.81rem" font-weight=600 color="ink.on-brand"
@@ -1302,12 +1645,31 @@ component Mobile
                 text receipt flex=1 min-width=0 font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
             if sendError != "" and not pending(sent)
               text sendError font="-exact-footnote" color="-exact-system-red" padding="0 16px"
+            if turnRows.length > 1
+              scroll height=36 testId="turn-rail"
+                row gap=6 padding="6px 12px" align-items="center"
+                  for tm, ti in turnRows key=tm.id
+                    row press=jumpTurn(tm.id) justify-content="center" align-items="center" min-width=32 min-height=26 padding="3px 8px" background-color="surface.card" border-radius=13 aria-label=t("chat.jumpTurn", n=(ti + 1)) testId=`turn-${ti + 1}`
+                      text `${ti + 1}` font-size="0.72rem" color="-exact-secondary-label"
             if not stick
               row justify-content="center" padding="0 0 6px 0"
                 row press=jumpLatest gap=4 align-items="center" padding="6px 12px" background-color="surface.card" border-radius=16 testId="jump-latest"
                   text "Latest" font-size="0.75rem"
                   image "symbol:forward-chevron" font-size="0.5rem"
             column gap=6 padding="0 10px 8px 10px"
+              if doneToast != ""
+                row gap=8 align-items="center" padding="8px 12px" background-color="surface.card-strong" border-radius=12 margin="0 8px 4px" testId="done-toast"
+                  image "symbol:checkmark" color="-exact-system-green" font-size="0.8rem"
+                  text doneToast font-size="0.81rem" color="text.ink" flex=1
+              if noteMark > 0
+                column gap=8 padding="8px 12px" background-color="surface.card-strong" border-radius=12 margin="0 8px 4px" testId="note-sheet"
+                  text t("feedback.noteHint") font-size="0.75rem" color="-exact-secondary-label"
+                  textarea value=noteDraft input=editNote field-sizing="content" max-height=100 border="none" background-color="surface.card" padding="6px 8px" border-radius=8 placeholder=t("feedback.noteField") testId="note-input"
+                  row gap=8 justify-content="flex-end"
+                    row press=closeNote padding="6px 10px" testId="note-cancel"
+                      text t("common.cancel") font-size="0.75rem" color="-exact-secondary-label"
+                    row press=sendNote padding="6px 10px" background-color="brand.fill" border-radius=8 testId="note-send"
+                      text t("feedback.noteSend") font-size="0.75rem" color="ink.on-brand"
               if attachId != "" or attachErr != ""
                 row gap=8 align-items="center" padding="6px 8px" background-color="surface.card-strong" border-radius=12 testId="attach-chip"
                   image "symbol:photo" font-size="0.75rem" color="brand.fill"
@@ -1324,6 +1686,12 @@ component Mobile
                 if attachId == ""
                   column width=32 height=32 align-items="center" justify-content="center" press=pickPhoto testId="attach"
                     image "symbol:photo" font-size="1rem" color=(pending(uploaded) ? "-exact-tertiary-label" : "-exact-secondary-label")
+                if mentionRows.length > 0
+                  row gap=6 flex-wrap="wrap" padding="0 8px 6px" testId="mention-row"
+                    for x in mentionRows key=x.id
+                      row press=pickMention(x.title == "" ? "untitled" : x.title) padding="4px 8px" background-color="surface.card" border-radius=8 gap=4 align-items="center" testId=`mention-${x.id}`
+                        image "symbol:document" font-size="0.6rem" color="-exact-tertiary-label"
+                        text (x.title == "" ? "untitled" : x.title) font-size="0.75rem" color="text.ink" line-clamp=1
                 textarea value=draft input=editDraft field-sizing="content" max-height=140 border="none" background-color="surface.card" flex=1 min-width=0 placeholder=t("composer.placeholder") aria-label="Message" testId="draft"
                 column width=36 height=36 align-items="center" justify-content="center" background-color=(canSend ? "brand.fill" : "surface.card-strong") border-radius=18 press=send testId="send"
                   image "symbol:send" color=(canSend ? "ink.on-brand" : "-exact-tertiary-label")
@@ -1415,6 +1783,16 @@ component Mobile
                   text t("stats.tokens", i=stIn, o=stOut, c=stCache) font-size="0.75rem" color="-exact-secondary-label"
                   if snap.stats.inTok + snap.stats.cacheRead > 0
                     text t("stats.hitRate", n=floor(100 * snap.stats.cacheRead / (snap.stats.inTok + snap.stats.cacheRead))) font-size="0.75rem" color="-exact-secondary-label"
+                  // Deep stats (parity with stat-dialog): per-turn average load
+                  // derived from the same counters.
+                  if snap.stats.turns > 0
+                    text t("stats.avgTurn", n=stAvg) font-size="0.75rem" color="-exact-secondary-label"
+                  match snap.context
+                    case some(ct)
+                      if ct.total > 0
+                        text t("stats.context", n=floor(100 * ct.used / ct.total)) font-size="0.75rem" color=(100 * ct.used / ct.total > 85 ? "-exact-system-orange" : "-exact-secondary-label") testId="context-meter"
+                    case none
+                      text ""
               section
                 row gap=8 align-items="center"
                   text t("rename.nameLabel") flex=1
@@ -1447,6 +1825,17 @@ component Mobile
                     if a.sessionId != ""
                       button press=openChild(a.sessionId) testId=`sub-${a.id}`
                         text `Subagent · ${a.label}`
+              if snap.team.length > 0
+                section
+                  text t("team.title") font="-exact-footnote" color="-exact-secondary-label"
+                  for tt in snap.team key=tt.id
+                    row gap=8 padding="6px 0" align-items="center" testId=`team-${tt.id}`
+                      image (tt.status == "completed" ? "symbol:checkmark" : tt.status == "in_progress" ? "symbol:refresh" : "symbol:circle") font-size="0.7rem" color=(tt.status == "completed" ? "-exact-system-green" : tt.status == "in_progress" ? "brand.fill" : "-exact-tertiary-label")
+                      text (tt.owner != "" ? `${tt.subject} · ${tt.owner}` : tt.subject) flex=1 min-width=0 font-size="0.81rem" color="text.ink" line-clamp=1
+                      text tt.status font-size="0.69rem" color="-exact-tertiary-label"
+              section
+                button press=openSchedules testId="schedules-open"
+                  text t("sched.entry")
               section
                 button press=openJobs testId="jobs-open"
                   text (snap.jobs.length > 0 ? t("jobs.titleN", n=snap.jobs.length) : t("jobs.title"))
@@ -1480,24 +1869,84 @@ component Mobile
                     text j.progress font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
                   if j.detail != ""
                     text j.detail font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
+        if e.name == "viewer"
+          column navigationKey=`${e.id}` navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" padding-top="var(--exact-safe-area-inset-top)"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text (imgFull != "" ? t("file.image") : file.name) role="heading" aria-level=1 flex=1 min-width=0 line-clamp=1 testId="file-name"
+            if imgFull != ""
+              image imgFull flex=1 min-height=0 object-fit="contain" testId="full-image"
+            if imgFull == ""
+              column flex=1 min-height=0 overflow="auto" padding="12px 16px"
+                if file.ok and file.kind == "text"
+                  text file.text font-size="0.75rem" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" white-space="pre-wrap" overflow-wrap="break-word" testId="file-text"
+                if file.ok and file.kind == "image"
+                  image file.url flex=1 min-height=0 object-fit="contain" testId="file-image"
+                if file.ok and file.kind == "binary"
+                  text t("file.binary", n=file.bytes) font-size="0.81rem" color="-exact-secondary-label" testId="file-binary"
+                if not file.ok
+                  text t("file.missing") font-size="0.81rem" color="-exact-secondary-label" testId="file-missing"
+                if pending(file)
+                  text t("common.loadingMore") font-size="0.81rem" color="-exact-secondary-label"
+        if e.name == "schedules"
+          column navigationKey=`${e.id}` navigationScroll="sched-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" padding-top="var(--exact-safe-area-inset-top)"
+            row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text t("sched.title") role="heading" aria-level=1 flex=1
+            list id="sched-list" appearance="none" flex=1 min-height=0
+              if sched.items.length == 0
+                text t("sched.none") font="-exact-footnote" color="-exact-secondary-label" padding="16px"
+              for st in sched.items key=st.id
+                column gap=4 padding="12px 16px" testId=`sched-${st.id}`
+                  row gap=8 align-items="center"
+                    image "symbol:refresh" font-size="0.8rem" color=(st.status == "active" ? "brand.fill" : "-exact-tertiary-label")
+                    text st.title flex=1 min-width=0 font="-exact-body" line-clamp=1
+                    if st.status == "active"
+                      button press=toggleSched(st.id, true) disabled=pending(schedSaved) testId=`sched-pause-${st.id}`
+                        text t("sched.pause")
+                    if st.status != "active"
+                      button press=toggleSched(st.id, false) disabled=pending(schedSaved) testId=`sched-resume-${st.id}`
+                        text t("sched.resume")
+                  if st.timing != ""
+                    text st.timing font-size="0.69rem" color="-exact-tertiary-label"
+                  if st.prompt != ""
+                    text st.prompt font-size="0.75rem" color="-exact-secondary-label" line-clamp=2
+                  row gap=8
+                    button press=runSched(st.id) disabled=pending(schedRan) testId=`sched-run-${st.id}`
+                      text t("sched.run")
+                    button press=delSched(st.id) disabled=pending(schedDeleted) testId=`sched-del-${st.id}`
+                      text t("sched.delete")
+              section
+                text t("sched.new") font="-exact-footnote" color="-exact-secondary-label"
+                input value=schedTitle input=editSchedTitle placeholder=t("sched.titleField") testId="sched-title"
+                input value=schedPrompt input=editSchedPrompt placeholder=t("sched.promptField") testId="sched-prompt"
+                input value=schedTiming input=editSchedTiming placeholder=t("sched.timingField") testId="sched-timing"
+                button press=newSchedule disabled=pending(schedSaved) testId="sched-create"
+                  text t("sched.create")
         if e.name == "scan"
           column navigationKey=`${e.id}` navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
             row align-items="center" gap=8 padding="8px 16px" background-color="surface.page"
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
               text "Scan QR" role="heading" aria-level=1 flex=1
-            if scanTrack != ""
+            if scanTrack != "" and not pending(scanned)
               exact-camera srcObject=scanTrack object-fit="cover" aria-label="Camera" testId="scan-viewfinder" flex=1 min-height=0 width="100%"
+            else if pending(scanned)
+              column flex=1 align-items="center" justify-content="center" padding=24 gap=12
+                image "assets/whale.svg" width=44 height=44 color="brand.fill" testId="scan-pairing-icon"
+                text t("pair.working") font="-exact-headline" testId="scan-pairing"
             else
               column flex=1 align-items="center" justify-content="center" padding=24 gap=10
                 text (cameraError == "" ? "Opening the camera…" : cameraError) text-align="center" color="-exact-secondary-label"
             column gap=10 padding=16 align-items="center" background-color="surface.page"
-              if firstCode == ""
+              if firstCode == "" and not pending(scanned)
                 text "Point the camera at the code on the Mac." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
-              else
+              else if not pending(scanned)
                 text "Code found" font="-exact-subheadline" testId="scan-found"
-                row press=connect(firstCode) padding="10px 16px" border-radius=12 background-color=(pending(scanned) ? "surface.card-strong" : "brand.fill") opacity=(pending(scanned) ? 0.6 : 1) testId="scan-connect"
-                  text (pending(scanned) ? "Pairing…" : "Pair with this Mac") font-size="0.94rem" font-weight=600 color="ink.on-brand"
+                row press=connect(firstCode) padding="10px 16px" border-radius=12 background-color="brand.fill" testId="scan-connect"
+                  text (linkError == "" ? "Pair with this Mac" : t("retry")) font-size="0.94rem" font-weight=600 color="ink.on-brand"
               // No camera (a simulator, or a refusal): the same link typed by hand.
               column gap=8 align-items="stretch" width="100%"
                 input value=scanNote input=editScanNote placeholder="dshm://pair?…" aria-label="Pairing link" testId="scan-link" min-height=44 background-color="surface.card" border-radius=10 padding="10px 12px"
@@ -1542,6 +1991,10 @@ component Mobile
                 row gap=8 align-items="center"
                   text t("settings.verbose") flex=1
                   input type="checkbox" switch checked=verbose change=setVerbose testId="verbose-toggle"
+              section
+                row gap=8 align-items="center"
+                  text t("settings.showArchived") flex=1
+                  input type="checkbox" switch checked=showArchived change=setShowArchived testId="archived-toggle"
               section
                 column gap=2
                   row press=setLang("") gap=8 align-items="center" min-height=44 testId="lang-system"

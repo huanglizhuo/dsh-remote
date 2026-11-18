@@ -21,11 +21,13 @@ type WireBlock = {
   args?: string;
   lazy?: boolean;
   badge?: string;
-  todos?: { id?: string; text?: string; state?: string }[];
+  todoSummary?: string;
+  todos?: { id?: string; text?: string; state?: string; change?: string }[];
   files?: { id?: string; path?: string; text?: string }[];
   question?: string;
   options?: { id?: string; text?: string }[];
   diffs?: { id?: string; path?: string; added?: number; removed?: number; lines?: { id?: string; sign?: string; text?: string }[] }[];
+  diffHidden?: number;
   att?: string;
   media?: string;
   w?: number;
@@ -49,9 +51,10 @@ function plain(md: string): string {
     .trim();
 }
 
-type WireMessage = { id?: string; role?: string; seq?: number; text?: string; fullText?: string; usage?: string; tools?: number; running?: number; thought?: boolean; interrupted?: boolean; took?: number; folded?: number; shadow?: number; blocks?: WireBlock[] };
+type WireUsageTokens = { in?: number | null; out?: number | null; cacheRead?: number | null; reasoning?: number | null } | null;
+type WireMessage = { id?: string; role?: string; seq?: number; text?: string; fullText?: string; usage?: string; tools?: number; running?: number; thought?: boolean; interrupted?: boolean; took?: number; folded?: number; shadow?: number; failed?: boolean; changedCount?: number; usageTokens?: WireUsageTokens; deliverables?: { path?: string; text?: string }[]; refs?: { path?: string }[]; day?: string; blocks?: WireBlock[] };
 type WireSession = { id?: string; title?: string | null; running?: boolean; runStartedAt?: number; pinned?: boolean; archived?: boolean; cwd?: string | null; updatedAt?: number | null; group?: string | null; first?: boolean; when?: string | null };
-type WireApproval = { id?: string; toolName?: string | null; reason?: string | null; summary?: string | null; args?: string; plan?: string; diffs?: { id?: string; path?: string; added?: number; removed?: number; lines?: { id?: string; sign?: string; text?: string }[] }[] | null; expiresIn?: number };
+type WireApproval = { id?: string; toolName?: string | null; reason?: string | null; command?: string; summary?: string | null; args?: string; plan?: string; diffs?: { id?: string; path?: string; added?: number; removed?: number; lines?: { id?: string; sign?: string; text?: string }[] }[] | null; expiresIn?: number };
 type WireQueue = { id?: string; text?: string };
 type WireQuestionItem = { id?: string; header?: string; question?: string; detail?: string; multiSelect?: boolean; kind?: string; options?: { id?: string; label?: string; description?: string }[] };
 type WireQuestion = { id?: string; callId?: string | null; expiresIn?: number; questions?: WireQuestionItem[] };
@@ -66,6 +69,8 @@ type WireSnapshot = {
     inherited?: boolean;
     runLabel?: string;
     runActivity?: { label?: string; detail?: string } | null;
+    context?: { used?: number; total?: number } | null;
+    quota?: string;
     stats?: { turns?: number; steps?: number; inTok?: number; outTok?: number; cacheRead?: number } | null;
     hasMore?: boolean;
     model?: string;
@@ -73,8 +78,9 @@ type WireSnapshot = {
     permissionOptions?: { default?: string; options?: { value?: string; name?: string; description?: string }[] } | null;
     messages?: WireMessage[];
     queue?: WireQueue[];
-    todos?: { id?: string; text?: string; state?: string }[];
+    todos?: { id?: string; text?: string; state?: string; change?: string }[];
     subagents?: { id?: string; label?: string; sessionId?: string }[];
+    team?: { id?: string; taskId?: string; subject?: string; status?: string; owner?: string }[];
     jobs?: { id?: string; kind?: string; label?: string; status?: string; progress?: string; detail?: string; when?: string }[];
     goalId?: string | null;
     pinned?: boolean;
@@ -93,7 +99,7 @@ const timeout = 8000;
 async function call(server: string, token: string, path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${server}${path}`, {
     ...init,
-    exactTimeout: timeout,
+    exactTimeout: (init as { exactTimeout?: number }).exactTimeout ?? timeout,
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
   });
 }
@@ -184,6 +190,7 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
       updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : 0,
       group: typeof s.group === 'string' ? s.group : '',
       first: s.first === true,
+      archived: s.archived === true,
       when: typeof s.when === 'string' ? s.when : '',
     })),
     sessionTitle: typeof session?.title === 'string' ? session.title : '',
@@ -206,6 +213,12 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
     runActivity: session?.runActivity && typeof session.runActivity === 'object'
       ? { label: typeof session.runActivity.label === 'string' ? session.runActivity.label : '', detail: typeof session.runActivity.detail === 'string' ? session.runActivity.detail : '' }
       : null,
+    // ContextMeter parity: how much of the context window the session occupies.
+    context: session?.context && typeof session.context === 'object'
+      ? { used: Number(session.context.used ?? 0) || 0, total: Number(session.context.total ?? 0) || 0 }
+      : null,
+    // The newest billing/quota failure, for a one-shot toast (QuotaNoticeHost parity).
+    quota: typeof session?.quota === 'string' ? session.quota : '',
     stats: (() => {
       const st = session?.stats
       const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
@@ -228,6 +241,35 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
       tools: typeof m.tools === 'number' ? m.tools : 0,
       running: typeof m.running === 'number' ? m.running : 0,
       thought: m.thought === true,
+      failed: m.failed === true,
+      // ReasoningRow parity: the first meaningful line, shown under a collapsed turn.
+      thoughtPreview: (() => {
+        const blocks = Array.isArray(m.blocks) ? m.blocks : [];
+        const r = blocks.find((b) => b && b.kind === 'reasoning' && typeof b.text === 'string' && b.text.trim() !== '');
+        if (!r) return '';
+        const line = (r.text as string).split(/\n/).map((s) => s.trim()).filter((s) => s !== '')[0] ?? '';
+        return line.slice(0, 80);
+      })(),
+      changedCount: typeof m.changedCount === 'number' ? m.changedCount : 0,
+      day: typeof m.day === 'string' ? m.day : '',
+      refs: (Array.isArray(m.refs) ? m.refs : []).map((r, k) => ({
+        id: `rf${k}`,
+        path: typeof r.path === 'string' ? r.path : '',
+        text: '',
+      })),
+      deliverables: (Array.isArray(m.deliverables) ? m.deliverables : []).map((f, k) => ({
+        id: `dl${k}`,
+        path: typeof f.path === 'string' ? f.path : '',
+        text: typeof f.text === 'string' ? f.text : '',
+      })),
+      usageTokens: m.usageTokens && typeof m.usageTokens === 'object'
+        ? {
+          in: typeof m.usageTokens.in === 'number' ? m.usageTokens.in : 0,
+          out: typeof m.usageTokens.out === 'number' ? m.usageTokens.out : 0,
+          cacheRead: typeof m.usageTokens.cacheRead === 'number' ? m.usageTokens.cacheRead : 0,
+          reasoning: typeof m.usageTokens.reasoning === 'number' ? m.usageTokens.reasoning : null,
+        }
+        : null,
       interrupted: m.interrupted === true,
       took: typeof m.took === 'number' ? m.took : 0,
       folded: typeof m.folded === 'number' ? m.folded : 0,
@@ -256,7 +298,9 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
           id: typeof t.id === 'string' ? t.id : `t${k}`,
           text: typeof t.text === 'string' ? t.text : '',
           state: typeof t.state === 'string' ? t.state : 'pending',
+          change: typeof t.change === 'string' ? t.change : '',
         })),
+        todoSummary: typeof b.todoSummary === 'string' ? b.todoSummary : '',
         files: (Array.isArray(b.files) ? b.files : []).map((f, k) => ({
           id: typeof f.id === 'string' ? f.id : `f${k}`,
           path: typeof f.path === 'string' ? f.path : '',
@@ -291,6 +335,7 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
             text: typeof ln.text === 'string' ? ln.text : '',
           })),
         })),
+        diffHidden: typeof b.diffHidden === 'number' ? b.diffHidden : 0,
         nodes: groupImages((Array.isArray(b.nodes) ? b.nodes : []).map((n, j) => ({
           id: typeof n.id === 'string' ? n.id : `n${j}`,
           t: typeof n.t === 'string' ? n.t : 'p',
@@ -344,6 +389,7 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
       summary: typeof a.summary === 'string' ? a.summary : '',
       plan: typeof a.plan === 'string' ? a.plan : '',
       args: typeof a.args === 'string' ? a.args : '',
+      command: typeof a.command === 'string' ? a.command : '',
       lazy: false,
       expiresIn: typeof a.expiresIn === 'number' ? a.expiresIn : 0,
     })),
@@ -355,6 +401,13 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
       id: typeof a.id === 'string' ? a.id : `a${i}`,
       label: typeof a.label === 'string' ? a.label : '',
       sessionId: typeof a.sessionId === 'string' ? a.sessionId : '',
+    })),
+    team: (Array.isArray(session?.team) ? session?.team ?? [] : []).map((t, i) => ({
+      id: typeof t.id === 'string' ? t.id : `tt${i}`,
+      taskId: typeof t.taskId === 'string' ? t.taskId : '',
+      subject: typeof t.subject === 'string' ? t.subject : '',
+      status: typeof t.status === 'string' ? t.status : 'pending',
+      owner: typeof t.owner === 'string' ? t.owner : '',
     })),
     jobs: (Array.isArray(session?.jobs) ? session?.jobs ?? [] : []).map((j, i) => ({
       id: typeof j.id === 'string' ? j.id : `j${i}`,
@@ -384,6 +437,20 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
         qid: String(session.question.questions?.[0]?.id ?? 'q0'),
         multi: session.question.questions?.[0]?.multiSelect === true,
         kind: (session.question.questions?.[0]?.kind ?? ''),
+        expiresIn: typeof session.question.expiresIn === 'number' ? session.question.expiresIn : 0,
+        // QuestionComposer parity: every question in the request, not just the first.
+        items: (Array.isArray(session.question.questions) ? session.question.questions : []).map((q, k) => ({
+          id: String(q.id ?? `q${k}`),
+          header: typeof q.header === 'string' ? q.header : '',
+          question: typeof q.question === 'string' ? q.question : '',
+          detail: typeof q.detail === 'string' ? q.detail : '',
+          multi: q.multiSelect === true,
+          options: (Array.isArray(q.options) ? q.options : []).map((o, j) => ({
+            id: String(o.id ?? `o${j}`),
+            text: typeof o.label === 'string' ? o.label : '',
+            description: typeof o.description === 'string' ? o.description : '',
+          })),
+        })),
         options: (session.question.questions?.[0]?.options ?? []).map((o, k) => ({
           id: String(o.id ?? `o${k}`),
           text: typeof o.label === 'string' ? o.label : '',
@@ -412,12 +479,14 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
       args: '',
       lazy: false,
       badge: '',
+      todoSummary: '',
       todos: [],
       files: [],
       question: '',
       options: [],
       description: '',
       diffs: [],
+      diffHidden: 0,
       nodes: [],
     })),
     balance: (() => {
@@ -468,12 +537,14 @@ const sources: Sources = {
     return { callId: String(callId), name: String(body.name ?? ''), args: String(body.args ?? ''), result: String(body.result ?? '') }
   },
   // The small poll: everything except the transcript rows (the bridge strips them).
-  loadLive: async ([server, token, selected, listRev]): Promise<Result<'loadLive'>> => {
+  loadLive: async ([server, token, selected, listRev, showArchived]): Promise<Result<'loadLive'>> => {
     const parts = [] as string[]
     if (selected != '') parts.push(`session=${encodeURIComponent(selected as string)}`)
-    if (typeof listRev === 'string' && listRev != '') parts.push(`listRev=${encodeURIComponent(listRev)}`)
+    if (typeof listRev === 'string' && listRev != '') parts.push(`listRev=${encodeURIComponent(listRev)}`);
+    if (showArchived === true) parts.push('archived=show')
     const query = parts.length > 0 ? `?${parts.join('&')}` : ''
     const res = await call(server as string, token as string, `/v1/live${query}`);
+    if (res.status === 401) throw new Error('unauthorized');
     if (!res.ok) throw new Error(await reason(res));
     const mapped = mapSnapshot((await res.json()) as WireSnapshot);
     return { ...mapped, messages: [] };
@@ -490,7 +561,8 @@ const sources: Sources = {
     const proj = String(rev ?? '').split(':')[2] ?? '';
     const cacheOk = tCache.key === key && tCache.take === size && tCache.seq > 0 && tCache.proj === proj;
     const query = `?session=${encodeURIComponent(selected as string)}&take=${size}${cacheOk ? `&since=${tCache.seq}` : ''}`;
-    const res = await call(server as string, token as string, `/v1/transcript${query}`);
+    const res = await call(server as string, token as string, `/v1/transcript${query}`, { exactTimeout: 30000 });
+    if (res.status === 401) throw new Error('unauthorized');
     if (!res.ok) throw new Error(await reason(res));
     const body = (await res.json()) as { rows?: unknown[]; ids?: unknown[]; seq?: unknown; hasMore?: boolean; rowsRev?: string };
     const ids = Array.isArray(body.ids) ? body.ids.map((v) => String(v)) : [];
@@ -621,8 +693,113 @@ const sources: Sources = {
 
   answerQuestion: async ([server, token, id, questionId, selected]): Promise<Result<'answerQuestion'>> => {
     const labels = String(selected ?? '').split('|').filter((v) => v !== '');
-    return post(server as string, token as string, `/v1/questions/${encodeURIComponent(String(id))}/answer`, { answers: [{ id: String(questionId), selected: labels }] });
+    const answer: { id: string; selected: string[] } = { id: String(questionId), selected: labels };
+    return post(server as string, token as string, `/v1/questions/${encodeURIComponent(String(id))}/answer`, { answers: [answer] });
   },
+
+  // QuestionComposer parity: answer every question of the request in one submit.
+  // `payload` is one `id\tpicks\tcustom` line per question (picks |-joined), \n-joined.
+  answerQuestions: async ([server, token, id, payload]): Promise<Result<'answerQuestions'>> => {
+    const answers = String(payload ?? '').split('\n').filter((line) => line.includes('\t')).map((line) => {
+      const [qid, picks, custom] = line.split('\t');
+      const answer: { id: string; selected: string[]; custom?: string } = {
+        id: String(qid ?? ''),
+        selected: String(picks ?? '').split('|').filter((v) => v !== ''),
+      };
+      const text = String(custom ?? '').trim();
+      if (text !== '') answer.custom = text;
+      return answer;
+    });
+    return post(server as string, token as string, `/v1/questions/${encodeURIComponent(String(id))}/answer`, { answers });
+  },
+
+  // Message feedback (ui-message-feedback parity): thumbs up/down on an assistant turn.
+  rateMessage: async ([server, token, id, seq, rating, note]): Promise<Result<'rateMessage'>> => {
+    const path = `/v1/sessions/${encodeURIComponent(String(id))}/feedback`;
+    try {
+      const payload: Record<string, unknown> = { seq: Number(seq), rating: rating === 'negative' ? 'negative' : 'positive' };
+      if (typeof note === 'string' && note.trim() !== '') payload.note = note.trim();
+      const res = await call(server as string, token as string, path, { method: 'POST', body: JSON.stringify(payload) });
+      if (res.ok) return { ok: true, error: '' };
+      return { ok: false, error: await reason(res) };
+    } catch {
+      return { ok: false, error: 'The Mac did not answer.' };
+    }
+  },
+
+  // File preview (document-preview parity): one workspace file as text or data URL.
+  loadFile: async ([server, token, sid, filePath]): Promise<Result<'loadFile'>> => {
+    const empty = { ok: false, kind: '', media: '', name: '', bytes: 0, text: '', url: '' };
+    try {
+      const res = await call(server as string, token as string, `/v1/sessions/${encodeURIComponent(String(sid))}/file?p=${encodeURIComponent(String(filePath))}`);
+      if (!res.ok) return empty;
+      const body = (await res.json()) as { ok?: boolean; kind?: string; media?: string; name?: string; bytes?: number; text?: string; url?: string };
+      return {
+        ok: body.ok !== false,
+        kind: String(body.kind ?? ''),
+        media: String(body.media ?? ''),
+        name: String(body.name ?? ''),
+        bytes: Number(body.bytes ?? 0),
+        text: String(body.text ?? ''),
+        url: String(body.url ?? ''),
+      };
+    } catch {
+      return empty;
+    }
+  },
+
+  // Scheduled tasks (ui-schedule parity).
+  loadSchedules: async ([server, token]): Promise<Result<'loadSchedules'>> => {
+    const empty = { items: [] as { id: string; title: string; prompt: string; status: string; kind: string; timing: string; nextAt: string; updatedAt: string; targetSessionId: string }[] };
+    try {
+      const res = await call(server as string, token as string, `/v1/schedules`);
+      if (!res.ok) return empty;
+      const body = (await res.json()) as { items?: { id?: string; title?: string; prompt?: string; status?: string; kind?: string; timing?: string; nextAt?: string | null; updatedAt?: string | null; targetSessionId?: string | null }[] };
+      return {
+        items: (body.items ?? []).map((t, k) => ({
+          id: `st${k}-${String(t.id ?? '')}`,
+          title: String(t.title ?? ''),
+          prompt: String(t.prompt ?? ''),
+          status: String(t.status ?? 'active'),
+          kind: String(t.kind ?? ''),
+          timing: String(t.timing ?? ''),
+          nextAt: String(t.nextAt ?? ''),
+          updatedAt: String(t.updatedAt ?? ''),
+          targetSessionId: String(t.targetSessionId ?? ''),
+        })),
+      };
+    } catch {
+      return empty;
+    }
+  },
+
+  createSchedule: async ([server, token, title, prompt, timing]): Promise<Result<'createSchedule'>> => {
+    try {
+      let parsed: unknown = { kind: 'daily', daily: { time: '09:00:00', time_zone: 'Asia/Shanghai' } };
+      try { parsed = JSON.parse(String(timing)); } catch { /* default above */ }
+      const res = await call(server as string, token as string, `/v1/schedules`, { method: 'POST', body: JSON.stringify({ title: String(title), prompt: String(prompt), timing: parsed }) });
+      return res.ok ? { ok: true, error: '' } : { ok: false, error: await reason(res) };
+    } catch {
+      return { ok: false, error: 'The Mac did not answer.' };
+    }
+  },
+
+  editSchedule: async ([server, token, id, patchJson]): Promise<Result<'editSchedule'>> => {
+    try {
+      let patch: Record<string, unknown> = {};
+      try { patch = JSON.parse(String(patchJson)) as Record<string, unknown>; } catch { /* empty patch */ }
+      const res = await call(server as string, token as string, `/v1/schedules/${encodeURIComponent(String(id))}/edit`, { method: 'POST', body: JSON.stringify(patch) });
+      return res.ok ? { ok: true, error: '' } : { ok: false, error: await reason(res) };
+    } catch {
+      return { ok: false, error: 'The Mac did not answer.' };
+    }
+  },
+
+  deleteSchedule: async ([server, token, id]): Promise<Result<'deleteSchedule'>> =>
+    post(server as string, token as string, `/v1/schedules/${encodeURIComponent(String(id))}/delete`),
+
+  runSchedule: async ([server, token, id]): Promise<Result<'runSchedule'>> =>
+    post(server as string, token as string, `/v1/schedules/${encodeURIComponent(String(id))}/run`),
 
   skipQuestion: async ([server, token, id]): Promise<Result<'skipQuestion'>> =>
     post(server as string, token as string, `/v1/questions/${encodeURIComponent(String(id))}/skip`),

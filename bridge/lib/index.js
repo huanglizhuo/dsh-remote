@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import qrcode from '../vendor/qrcode.js'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -439,16 +440,29 @@ const usageLine = (inTok, outTok, cacheRead) => {
 
   // ---- markdown -> block nodes -------------------------------------------------
   // The app has no Markdown renderer and no webview, so the bridge hands it a tiny
-  // block model instead: paragraphs, headings, lists, code, quotes, rules. Inline
-  // marks are flattened to text (links keep their URL) so every host can draw it.
+  // block model instead: paragraphs, headings, lists, code, quotes, rules.
+  // Inline marks (code/bold/italic/strikethrough/links) stay in the text: the
+  // phone's MdText parses them into styled runs (parity with desktop render.tsx).
+  // Only images collapse, because the phone has no inline image run.
   const inline = (s) => String(s)
     .replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_, alt, url) => `[image: ${alt || url}]`)
-    .replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (_, label, url) => (label === url ? url : `${label} (${url})`))
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2')
-    .replace(/(^|[^_])__([^_]+)__/g, '$1$2')
-    .replace(/~~([^~]+)~~/g, '$1')
+
+  // Credential masking (parity with ui-secret-mask): a handful of conservative
+  // shapes, replaced with a stub that keeps the prefix identifiable.
+  const SECRET_PATTERNS = [
+    /\bsk-[A-Za-z0-9_-]{12,}/g,
+    /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+    /\bAKIA[0-9A-Z]{16}\b/g,
+    /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
+    /\bAIza[0-9A-Za-z_-]{30,}/g,
+  ]
+  const maskSecrets = (s) => {
+    const text = String(s ?? '')
+    if (!/[A-Za-z0-9_-]{20,}/.test(text)) return text
+    let out = text
+    for (const re of SECRET_PATTERNS) out = out.replace(re, (m) => `${m.slice(0, 6)}…${m.slice(-2)}（已遮蔽）`)
+    return out
+  }
 
   const mdNodes = (src) => {
     const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n')
@@ -482,6 +496,11 @@ const usageLine = (inTok, outTok, cacheRead) => {
         if (/^(diff|patch|udiff)$/i.test(lang) || (!lang && body.length > 1 && body.filter((l) => /^[+-]/.test(l)).length > body.length / 2)) {
           const items = body.slice(0, 400).map((l, k) => ({ id: `d${k}`, s: l.startsWith('+') ? '+' : l.startsWith('-') ? '-' : ' ', v: truncate(l.slice(0, 200), 200) }))
           push({ t: 'diff', v: '', items })
+          continue
+        }
+        // Desktop pipes math fences through KaTeX; the phone centers the source.
+        if (/^(math|latex|tex|katex)$/i.test(lang)) {
+          push({ t: 'math', v: truncate(body.join('\n'), 2000) })
           continue
         }
         push({ t: 'code', lang, v: body.join('\n') })
@@ -675,21 +694,51 @@ const usageLine = (inTok, outTok, cacheRead) => {
     return lines
   }
 
-  const diffFiles = (diffs) => (Array.isArray(diffs) ? diffs : []).slice(0, 4).map((d, i) => ({
+  const diffFiles = (diffs) => (Array.isArray(diffs) ? diffs : []).slice(0, 8).map((d, i) => ({
     id: `f${i}`,
     path: String(d?.path ?? ''),
-    lines: diffLines(d?.oldText, d?.newText),
-    added: diffLines(d?.oldText, d?.newText).filter((l) => l.sign === '+').length,
-    removed: diffLines(d?.oldText, d?.newText).filter((l) => l.sign === '-').length,
+    lines: diffLines(d?.oldText, d?.newText, 120),
+    added: diffLines(d?.oldText, d?.newText, 120).filter((l) => l.sign === '+').length,
+    removed: diffLines(d?.oldText, d?.newText, 120).filter((l) => l.sign === '-').length,
   }))
+  // How many files a card hides, so the phone can say "还有 N 个文件".
+  const diffHidden = (diffs) => Math.max(0, (Array.isArray(diffs) ? diffs : []).length - 8)
 
   const renderEvent = (ev) => {
     const type = ev?.type
     const d = ev?.data ?? {}
     if (type === 'user/message') {
       const kind = d.source?.kind ?? 'user'
-      if (kind !== 'user') return null // runtime context, skill catalogs and time snapshots stay on the Mac
-      return { id: `u${ev.seq}`, seq: ev.seq, role: 'user', at: ev.time, text: truncate(textOf(d.content ?? d.message?.content), 4000) }
+      if (kind !== 'user') {
+        const full = maskSecrets(truncate(textOf(d.content ?? d.message?.content), 4000))
+        // Runtime injections (skill catalogs, goal rounds, schedule fires…): the
+        // payload stays on the Mac. A short one is a trigger header (parity with
+        // TurnTriggerNodeView); a long injected context is a collapsed
+        // disclosure row (parity with ContextInjectionRow).
+        const TRIGGER_LABEL = { goal: '目标自动续跑', schedule: '定时任务', subagent: '子代理', webhook: 'Webhook', queue: '队列消息', system: '系统' }
+        if (full.length > 500) {
+          const label = TRIGGER_LABEL[kind] ?? `由 ${kind} 注入`
+          return { id: `g${ev.seq}`, seq: ev.seq, role: 'injection', at: ev.time, turn: d.turn ?? null, text: full, usage: label, tokens: null, blocks: [] }
+        }
+        return { id: `g${ev.seq}`, seq: ev.seq, role: 'trigger', at: ev.time, turn: d.turn ?? null, text: TRIGGER_LABEL[kind] ?? `由 ${kind} 触发`, usage: '', tokens: null, blocks: [] }
+      }
+      // Reference chips (parity with FileReference under user-text-rules): the
+      // paths and skills the prompt @-names, kept as small markers.
+      const raw = textOf(d.content ?? d.message?.content)
+      const refs = []
+      for (const m of String(raw).matchAll(/@(?:"([^"\n]+)"|([^\s，。,.!?"'()\[\]{}]+))/g)) {
+        const p = (m[1] ?? m[2] ?? '').trim()
+        if (p !== '' && !refs.some((r) => r.path === p) && p.length <= 300) refs.push({ path: p })
+        if (refs.length >= 6) break
+      }
+      return { id: `u${ev.seq}`, seq: ev.seq, role: 'user', at: ev.time, text: maskSecrets(truncate(raw, 4000)), refs }
+    }
+    if (type === 'system/message') {
+      // The model-visible system prompt: a collapsed disclosure (parity with
+      // SystemPromptRow). Later series entries are in-history updates.
+      const text = maskSecrets(truncate(textOf(d.content ?? d.message?.content ?? d.text), 4000))
+      if (text === '') return null
+      return { id: `sp${ev.seq}`, seq: ev.seq, role: 'sysprompt', at: ev.time, turn: null, text, usage: '', tokens: null, blocks: [] }
     }
     if (type === 'assistant/message') {
       const content = d.message?.content ?? []
@@ -697,8 +746,10 @@ const usageLine = (inTok, outTok, cacheRead) => {
       for (const b of content) {
         if (!b) continue
         const id = `b${blocks.length}`
-        if (b.type === 'text') blocks.push({ id, kind: 'md', text: b.text ?? '', nodes: mdNodes(b.text) })
-        else if (b.type === 'reasoning' && (b.text ?? '').trim() !== '') blocks.push({ id, kind: 'reasoning', text: truncate(b.text, 1200) })
+        if (b.type === 'text') {
+          const safe = maskSecrets(b.text ?? '')
+          blocks.push({ id, kind: 'md', text: safe, nodes: mdNodes(safe) })
+        } else if (b.type === 'reasoning' && (b.text ?? '').trim() !== '') blocks.push({ id, kind: 'reasoning', text: maskSecrets(truncate(b.text, 8000)) })
         else if (b.type === 'tool-call') blocks.push({ id, kind: 'tool', callId: b.id ?? null, name: b.name ?? 'tool', status: 'running', ...toolCard(b.name ?? 'tool', b.arguments) })
         else if (b.type === 'image') {
           const ref = b.attachment ?? null
@@ -719,7 +770,15 @@ const usageLine = (inTok, outTok, cacheRead) => {
       const outTok = u?.outputTokens ?? u?.completionTokens ?? u?.output ?? null
       const cacheRead = u?.cacheReadTokens ?? u?.cachedTokens ?? 0
       const usage = usageLine(inTok, outTok, cacheRead)
-      return { id: `a${ev.seq}`, seq: ev.seq, role: 'assistant', at: ev.time, turn: d.turn ?? null, text, usage, tokens: inTok == null && outTok == null ? null : [inTok ?? 0, outTok ?? 0], cache: cacheRead, interrupted: Boolean(d.interrupted), blocks }
+      // Four-bucket detail (parity with TurnUsagePanel): reasoning tokens ride the
+      // usage event when the provider reports them.
+      const usageTokens = inTok == null && outTok == null ? null : {
+        in: inTok ?? 0,
+        out: outTok ?? 0,
+        cacheRead,
+        reasoning: u?.reasoningTokens ?? u?.completionTokensDetails?.reasoningTokens ?? u?.outputTokensDetails?.reasoningTokens ?? null,
+      }
+      return { id: `a${ev.seq}`, seq: ev.seq, role: 'assistant', at: ev.time, turn: d.turn ?? null, text, usage, tokens: inTok == null && outTok == null ? null : [inTok ?? 0, outTok ?? 0], cache: cacheRead, usageTokens, interrupted: Boolean(d.interrupted), blocks }
     }
     if (type === 'compaction/summary') {
       // Desktop CompactionItem: 已折叠 N 项 · M tokens, expandable summary.
@@ -740,6 +799,19 @@ const usageLine = (inTok, outTok, cacheRead) => {
       if (failure === '') return null
       return { id: `e${ev.seq}`, seq: ev.seq, role: 'error', at: ev.time, turn: d.turn ?? null, text: failure, usage: '', tokens: null, blocks: [] }
     }
+    if (type === 'llm/retry') {
+      // Parity with ModelRetryItem: attempt number, wait, reason.
+      const n = Number(d.retry ?? 0)
+      const delay = Number(d.retryDelayMs ?? 0)
+      const why = truncate(String(d.reason?.message ?? d.error?.message ?? d.reason ?? d.error ?? ''), 160)
+      const wait = delay > 0 ? `，${Math.max(1, Math.round(delay / 1000))} 秒后重试` : ''
+      return {
+        id: `r${ev.seq}`, seq: ev.seq, role: 'retry', at: ev.time, turn: d.turn ?? null,
+        text: `模型调用失败${n > 1 ? `，第 ${n} 次重试` : '，即将重试'}${wait}${why ? ` —— ${why}` : ''}`,
+        retryIn: delay, usage: '', tokens: null, blocks: [],
+      }
+    }
+    if (type === 'llm/retry-started') return null
     if (type === 'tool/call') {
       // The assistant message already carries the call block; this event is the same
       // call again. Keep it only as a fallback for providers that split calls out.
@@ -762,7 +834,7 @@ const usageLine = (inTok, outTok, cacheRead) => {
       }
       return {
         id: `t${ev.seq}`, seq: ev.seq, role: 'result', at: ev.time, turn: d.turn ?? null, callId,
-        text: truncate(textOf(d.message?.content), 800),
+        text: maskSecrets(truncate(textOf(d.message?.content), 800)),
         failed: Boolean(d.message?.isError ?? d.error),
         diff: d.meta?.diffs ?? null,
         images,
@@ -852,8 +924,8 @@ const activityFromTool = (name, rawArgs) => {
   return { label: ACTIVITY_LABEL[cat] ?? ACTIVITY_LABEL.tools, detail }
 }
 
-const snapshotSession = async (sessionId, take = 8) => {
-    const rows = await mergeStatus()
+const snapshotSession = async (sessionId, take = 8, showArchived = false) => {
+    const rows = await mergeStatus(showArchived)
     const meta = rows.find((r) => r.id === sessionId) ?? null
     // Rows carry the whole projection blob for server-side use; the phone only
     // needs the list fields, and shipping `meta` made every poll ~230 KB.
@@ -873,7 +945,37 @@ const snapshotSession = async (sessionId, take = 8) => {
     // A fork child carries an inherited-prefix cut marker (session/end-seed {inherited}).
     const inherited = (page?.records ?? []).some((r) => r?.event?.type === 'session/end-seed' && r?.event?.data?.inherited === true)
     orphanCalls.clear()
+    // Workflow orchestration runs (parity with ui-workflow-run): the four
+    // tool-workflow events fold into ONE tool card whose member list reuses the
+    // todo checklist UI — pending ○, completed ●, failed ◐ with ✗.
+    const wfRuns = new Map()
     for (const rec of page?.records ?? []) {
+      const ev = rec?.event
+      if (ev && typeof ev.type === 'string' && ev.type.startsWith('tool-workflow/')) {
+        const d = ev.data ?? {}
+        const runId = String(d.runId ?? '')
+        if (ev.type === 'tool-workflow/run-start') {
+          const block = { kind: 'tool', callId: `wf-${runId}`, name: 'workflow', label: `编排 ${truncate(String(d.name ?? 'workflow'), 60)}`, status: 'running', todos: [] }
+          wfRuns.set(runId, { block })
+          messages.push({ id: `wf-${runId}`, seq: Number(ev.seq ?? 0), role: 'assistant', at: ev.time, turn: d.turn ?? null, text: '', usage: '', tokens: null, blocks: [block] })
+        } else {
+          const run = wfRuns.get(runId)
+          if (!run) continue
+          if (ev.type === 'tool-workflow/agent-start') {
+            if (run.block.todos.length < 24) run.block.todos.push({ id: `wfm-${d.seq}`, text: `${d.phase ? `${d.phase} · ` : ''}${truncate(String(d.label ?? 'agent'), 120)}`, state: 'in_progress' })
+          } else if (ev.type === 'tool-workflow/agent-end') {
+            const t = run.block.todos.find((x) => x.id === `wfm-${d.seq}`)
+            if (t) {
+              if (d.outcome === 'completed') t.state = 'completed'
+              else if (d.outcome === 'failed' || d.outcome === 'cancelled') { t.state = 'in_progress'; t.text += d.outcome === 'failed' ? ' ✗' : ' ⨯' }
+            }
+          } else if (ev.type === 'tool-workflow/run-end') {
+            run.block.status = d.stopReason === 'completed' ? 'ok' : d.stopReason ? 'error' : 'unknown'
+            if (d.stopReason && d.stopReason !== 'completed') run.block.label += ` · ${d.stopReason}`
+          }
+        }
+        continue
+      }
       const row = renderEvent(rec?.event)
       if (row) messages.push(row)
     }
@@ -905,7 +1007,7 @@ const snapshotSession = async (sessionId, take = 8) => {
       target.status = m.failed || badExit ? 'error' : 'ok'
       if (badExit) target.badge = `exit ${exit[1]}`
       else if (m.failed) target.badge = 'failed'
-      if (m.diff) { target.diff = m.diff; target.diffs = diffFiles(m.diff) }
+      if (m.diff) { target.diff = m.diff; target.diffs = diffFiles(m.diff); target.diffHidden = diffHidden(m.diff) }
       messages.splice(i, 1)
     }
     // Assistant messages whose tools all answered are settled; anything still marked
@@ -985,11 +1087,11 @@ const snapshotSession = async (sessionId, take = 8) => {
     // rows that fit, and remember that the rest is still there.
     // Newest turns keep their detail (markdown, cards); older ones are text-only so
     // "load earlier" can actually add rows instead of being trimmed away again.
-    const FULL_ROWS = 6
+    const FULL_ROWS = 12
     // Projection version: bumped whenever the row PROJECTION changes shape (not just
     // new events). Clients cache rows keyed by rowsRev; a seq-only rev cannot express
     // "same seq, better content", so old caches would survive a fix like this.
-    const PROJ = 4
+    const PROJ = 5
     // A single turn can be huge (48 blocks of tool calls). Keep the shape, but cap the
     // detail a row may carry so one turn cannot eat the whole budget.
     const ROW_CAP = 12000
@@ -1009,7 +1111,19 @@ const snapshotSession = async (sessionId, take = 8) => {
       // fullText is the concatenated plain text of every step — always the better fallback.
       const flat = String(row.fullText ?? row.text ?? '')
       if (i < merged.length - FULL_ROWS) {
-        return { ...full, text: truncate(flat, 1200), blocks: [] }
+        // Older turns keep their SHAPE (headings, tool cards, code fences) with
+        // slimmed detail instead of collapsing to flat text: parity with the
+        // desktop's always-rich rendering, at a size "load earlier" can afford.
+        return {
+          ...full,
+          text: truncate(flat, 2400),
+          blocks: (full.blocks ?? []).map((b) => {
+            if (!b) return b
+            if (b.kind === 'reasoning') return { ...b, text: truncate(b.text, 400) }
+            if (b.kind === 'md') return { ...b, text: truncate(b.text, 1400), nodes: slimNodes(b.nodes) }
+            return { ...b, args: undefined, result: undefined, lazy: true }
+          }),
+        }
       }
       // Newest turns keep tool-card detail up to a generous cap…
       if (JSON.stringify(full).length <= ANSWER_CAP) return full
@@ -1034,10 +1148,94 @@ const snapshotSession = async (sessionId, take = 8) => {
       // Last resort (no md/text blocks at all): whole-turn plain text.
       return { ...full, text: truncate(flat, 8000), blocks: [] }
     })
+    // Turn-tail deliverables (parity with ui-deliverables): files the turn
+    // `present`ed, plus a changed-files count from write-class tools.
+    const enriched = graded.map((row) => {
+      if (row.role !== 'assistant') return row
+      const files = (row.blocks ?? [])
+        .filter((b) => b && b.kind === 'tool' && b.name === 'present' && Array.isArray(b.files))
+        .flatMap((b) => b.files)
+      const changed = (row.blocks ?? [])
+        .filter((b) => b && b.kind === 'tool' && /^(write|edit|apply_patch)$/.test(String(b.name)) && b.status === 'ok')
+        .length
+      if (files.length === 0 && changed === 0) return row
+      return { ...row, deliverables: files.slice(0, 8), changedCount: changed }
+    })
+    // A settled turn whose tail row is an error shows the warning state in its
+    // group header (TurnProcessNodeView's "Failed" arm) instead of a checkmark.
+    let failedMark = -1
+    for (let k = graded.length - 1; k >= 0; k -= 1) {
+      const row = graded[k]
+      if (row.role === 'error') { failedMark = k; continue }
+      if (row.role === 'assistant' && failedMark > k) {
+        graded[k] = { ...row, failed: true }
+        failedMark = -1
+      }
+      if (row.role === 'user') failedMark = -1
+    }
+    // Calendar-day separators (parity with use-calendar-day): one label where
+    // the local day changes between chronological rows; the first row stays bare.
+    const dayLabel = (ts) => {
+      if (!ts) return ''
+      const d = new Date(ts)
+      const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+      const diffDays = Math.round((startOf(new Date()) - startOf(d)) / 86400000)
+      if (diffDays === 0) return '今天'
+      if (diffDays === 1) return '昨天'
+      if (diffDays === 2) return '前天'
+      const sameYear = d.getFullYear() === new Date().getFullYear()
+      return `${sameYear ? '' : `${d.getFullYear()}年`}${d.getMonth() + 1}月${d.getDate()}日`
+    }
+    let prevDay = null
+    for (const row of enriched) {
+      if (!row || !row.at) continue
+      const key = new Date(row.at).toDateString()
+      if (key !== prevDay) {
+        prevDay = key
+        if (row.day === undefined) row.day = dayLabel(row.at)
+      }
+    }
+    // todo diff (parity with todo-diff-model): each todo_write card carries the
+    // change of every item against the previous write in the same window. The
+    // pass works on copies: rows can be shared with the incremental cache.
+    const annotated = enriched.map((row) => (row && Array.isArray(row.blocks) && row.blocks.some((b) => b && b.kind === 'tool' && b.name === 'todo_write' && Array.isArray(b.todos))
+      ? { ...row, blocks: row.blocks.map((b) => (b && b.kind === 'tool' && b.name === 'todo_write' && Array.isArray(b.todos) ? { ...b, todos: b.todos.map((t) => ({ ...t })) } : b)) }
+      : row))
+    let prevTodos = null
+    for (const row of annotated) {
+      if (!row || !Array.isArray(row.blocks)) continue
+      for (const b of row.blocks) {
+        if (!b || b.kind !== 'tool' || b.name !== 'todo_write' || !Array.isArray(b.todos)) continue
+        const prevByTitle = new Map((prevTodos ?? []).map((t) => [t.text, t]))
+        const currentTitles = new Set(b.todos.map((t) => t.text))
+        let added = 0
+        let updated = 0
+        let removed = 0
+        b.todos = b.todos.map((t) => {
+          const before = prevByTitle.get(t.text)
+          prevByTitle.delete(t.text)
+          if (before === undefined) {
+            added++
+            return { ...t, change: 'added' }
+          }
+          if (before.state !== t.state) {
+            updated++
+            return { ...t, change: 'updated' }
+          }
+          return { ...t, change: '' }
+        })
+        for (const t of prevByTitle.values()) {
+          b.todos.push({ id: `${t.id ?? t.text}-rm`, text: t.text, state: t.state, change: 'removed' })
+          removed++
+        }
+        b.todoSummary = (prevTodos === null ? '' : [added > 0 ? `+${added}` : '', updated > 0 ? `改 ${updated}` : '', removed > 0 ? `删 ${removed}` : ''].filter(Boolean).join(' · ') || '无变化')
+        prevTodos = b.todos.filter((t) => t.change !== 'removed').map((t) => ({ text: t.text, state: t.state }))
+      }
+    }
     // Rows leave only on a rev change and arrive as tiny incremental patches
     // afterwards, so the one-shot cold window can afford real depth (newest turns
     // alone can legitimately be ~30 KB each now that answers are never degraded).
-    const phoneRows = budget(graded, 240000)
+    const phoneRows = budget(annotated, 240000)
 
     let attempt = null
     for (const item of live.values()) {
@@ -1163,11 +1361,21 @@ const snapshotSession = async (sessionId, take = 8) => {
         .filter(([, a]) => a.sessionId === sessionId)
         .map(([id, a]) => {
           const call = a.callId ? callIndex.get(a.callId) : null
+          // ApprovalCommand parity: the shell command (or terminal text) the
+          // correlated call wants to run, shown as a line above the JSON.
+          const command = (() => {
+            try {
+              const args = JSON.parse(call?.args ?? '{}')
+              const c = a.toolName === 'terminal_send' ? args.text : args.command
+              return typeof c === 'string' && c.length > 0 ? truncate(c, 300) : ''
+            } catch { return '' }
+          })()
           return {
             id,
             toolName: a.toolName,
             reason: a.reason,
             callId: a.callId,
+            command,
             summary: call?.summary ?? '',
             args: call?.args ?? '',
             // exit_plan_mode carries a full markdown plan; show it as prose, not JSON.
@@ -1177,6 +1385,12 @@ const snapshotSession = async (sessionId, take = 8) => {
             expiresIn: Math.max(0, Math.round((a.expiresAt - Date.now()) / 1000)),
           }
         }),
+      // Quota notice (parity with QuotaNoticeHost): newest failure that smells like
+      // billing/quota, surfaced so the phone can toast it once per rev.
+      quota: (() => {
+        const err = [...phoneRows.rows].reverse().find((r) => r && r.role === 'error' && /quota|配额|余额|欠费|insufficient|balance|billing/i.test(String(r.text)))
+        return err ? String(err.text) : ''
+      })(),
     }
     return out
   }
@@ -1219,8 +1433,8 @@ const snapshotSession = async (sessionId, take = 8) => {
     }
   }
 
-  const callList = async () => {
-    const { pinned: pinnedIds } = registrySets()
+  const callList = async (showArchived = false) => {
+    const { pinned: pinnedIds, archived: archivedIds } = registrySets()
     const page = await sc().list({}, new AbortController().signal)
     const items = page?.items ?? []
     const rows = items.map((r) => {
@@ -1229,6 +1443,8 @@ const snapshotSession = async (sessionId, take = 8) => {
         id: r.sessionId,
         title: typeof pv.title === 'string' ? pv.title : (pv.title?.name ?? null),
         cwd: r.cwd ?? null,
+        origin: r.origin ?? null,
+        archived: archivedIds.has(r.sessionId),
         running: Boolean(r.running),
         blank: Boolean(r.blank),
         available: Boolean(r.agentAvailable),
@@ -1261,21 +1477,27 @@ const snapshotSession = async (sessionId, take = 8) => {
         }))
       } catch { return [] }
     })()
-    const byId = new Map(rows.map((r) => [r.id, r]))
+    // Desktop sidebar visibility (tree.ts sessionVisible): subagent children and
+    // other-workspace blanks never list; archived sessions hide unless the phone
+    // asks for them (archived=show mirrors the desktop view-options toggle).
+    const visible = rows.filter((r) => !r.blank && r.origin !== 'subagent' && (showArchived || !archivedIds.has(r.id)))
+    const byId = new Map(visible.map((r) => [r.id, r]))
     const placed = new Set()
     const ordered = []
+    // updatedAt DESC with the Session-id ascending tie-break the desktop uses.
+    const byRecency = (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     for (const w of workspaces) {
       const rank = (r) => (pinnedIds.has(r.id) ? 1 : 0)
       const members = (w.sessionIds ?? []).map((id) => byId.get(id)).filter(Boolean)
-        .sort((a, b) => rank(b) - rank(a) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        .sort((a, b) => rank(b) - rank(a) || byRecency(a, b))
       for (const r of members) {
         if (placed.has(r.id)) continue
         placed.add(r.id)
         ordered.push({ row: r, key: w.path || w.id, label: w.title || baseName(w.path) || w.id })
       }
     }
-    const stray = rows.filter((r) => !placed.has(r.id))
-      .sort((a, b) => (pinnedIds.has(b.id) ? 1 : 0) - (pinnedIds.has(a.id) ? 1 : 0) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    const stray = visible.filter((r) => !placed.has(r.id))
+      .sort((a, b) => (pinnedIds.has(b.id) ? 1 : 0) - (pinnedIds.has(a.id) ? 1 : 0) || byRecency(a, b))
     let prev = null
     for (const entry of ordered) {
       const r = entry.row
@@ -1284,11 +1506,13 @@ const snapshotSession = async (sessionId, take = 8) => {
       r.when = ago(r.updatedAt ?? r.lastPromptAt)
       prev = entry.key
     }
+    // The Ungrouped bucket labels itself client-side (group ''); keep the group
+    // key distinct from any workspace path so `first` still flips once.
     for (const r of stray) {
-      r.group = 'Ungrouped'
-      r.first = prev !== 'Ungrouped'
+      r.group = ''
+      r.first = prev !== '__ungrouped__'
       r.when = ago(r.updatedAt ?? r.lastPromptAt)
-      prev = 'Ungrouped'
+      prev = '__ungrouped__'
     }
     return [...ordered.map((e) => e.row), ...stray]
   }
@@ -1298,9 +1522,9 @@ const snapshotSession = async (sessionId, take = 8) => {
   const attachments = new Map()
   let catalogCache = []
 
-  const mergeStatus = async () => {
+  const mergeStatus = async (showArchived = false) => {
     const { pinned: pinnedIds, archived: archivedIds } = registrySets()
-    const rows = await callList()
+    const rows = await callList(showArchived)
     const st = agentStatus()
     for (const r of rows) {
       const s = sessions.get(r.id)
@@ -1709,8 +1933,11 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
       if ((url.pathname === '/v1/live' || url.pathname === '/v1/transcript') && req.method === 'GET') {
         const sessionId = url.searchParams.get('session') ?? null
         const take = Math.min(Math.max(Number(url.searchParams.get('take') ?? 8) || 8, 4), 60)
+        // The archived filter mirrors the desktop view-options toggle: 'default'
+        // hides archived rows, 'show' mixes them back in grayed.
+        const showArchived = url.searchParams.get('archived') === 'show'
         if (sessionId) phoneSeen.set(sessionId, Date.now())
-        const snapshot = await snapshotSession(sessionId, take)
+        const snapshot = await snapshotSession(sessionId, take, showArchived)
         if (url.pathname === '/v1/transcript') {
           const rowsOut = snapshot.session?.messages ?? []
           const sinceRaw = url.searchParams.get('since')
@@ -1747,6 +1974,25 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
           const pv = catalogCache.find((r) => r.id === sessionId)?.projections ?? {}
           snapshot.session.subagents = (Array.isArray(pv.subagentCatalog) ? pv.subagentCatalog : []).slice(0, 8)
             .map((c) => ({ id: String(c.id ?? ''), label: truncate(String(c.label ?? c.name ?? ''), 80), sessionId: String(c.id ?? '') }))
+          // Agent-team board (parity with TeamBoard): tasks of this session's team.
+          const teamTasks = pv.agentTeam?.tasks ?? pv.team?.tasks
+          if (Array.isArray(teamTasks) && teamTasks.length > 0) {
+            snapshot.session.team = teamTasks.slice(0, 20).map((t, k) => ({
+              id: `tt${k}`,
+              taskId: String(t.id ?? ''),
+              subject: truncate(String(t.subject ?? ''), 120),
+              status: String(t.status ?? 'pending'),
+              owner: truncate(String(t.ownerName ?? t.ownerId ?? ''), 60),
+            }))
+          }
+          // Context occupancy (parity with ContextMeter): the projection carries
+          // whichever shape the host version speaks; pick defensively.
+          const ct = pv.contextTimeline
+          if (ct && typeof ct === 'object') {
+            const used = Number(ct.usedTokens ?? ct.used ?? ct.occupied ?? 0)
+            const total = Number(ct.totalTokens ?? ct.total ?? ct.capacity ?? 0)
+            if (used > 0 || total > 0) snapshot.session.context = { used, total }
+          }
         }
         if (snapshot.session) snapshot.session.messages = []
         if (hasList && snapshot.sessions.length > 0) {
@@ -1943,6 +2189,131 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         try {
           svc.set(agent.session, value)
           return json(res, 200, { ok: true, value, catalog: permissionCatalog(ctx) })
+        } catch (err) {
+          return json(res, 409, { error: String(err?.message ?? err) })
+        }
+      }
+
+      // Message feedback (parity with ui-message-feedback): the host owns the
+      // compare-and-set; the phone sends seq + rating and optionally a note.
+      if (parts[0] === 'v1' && parts[1] === 'sessions' && parts[3] === 'feedback' && (req.method === 'POST' || req.method === 'GET')) {
+        const id = decodeURIComponent(parts[2])
+        const svc = (() => { try { return ctx.get('messageFeedback') } catch { return undefined } })()
+        if (!svc || typeof svc.put !== 'function') return json(res, 409, { error: 'feedback unavailable' })
+        try {
+          if (req.method === 'GET') {
+            const listed = await svc.list({ sessionId: id })
+            const items = Array.isArray(listed?.items) ? listed.items : Array.isArray(listed) ? listed : []
+            return json(res, 200, { items: items.map((it) => ({ messageId: Number(it?.messageId ?? 0), rating: String(it?.rating ?? '') })) })
+          }
+          const body = await readBody(req)
+          const rating = body.rating === 'negative' ? 'negative' : 'positive'
+          const result = await svc.put({
+            sessionId: id,
+            messageId: Number(body.seq),
+            rating,
+            ...(typeof body.note === 'string' && body.note.trim() !== '' ? { note: body.note.trim() } : {}),
+            ifVersion: null,
+          })
+          const failure = result && typeof result === 'object' && 'ok' in result && result.ok === false ? result : null
+          if (failure) return json(res, 409, { error: String(failure.error?.code ?? failure.error?.message ?? 'feedback rejected') })
+          return json(res, 200, { ok: true })
+        } catch (err) {
+          return json(res, 409, { error: String(err?.message ?? err) })
+        }
+      }
+
+      // File preview (parity with the desktop document preview): one workspace
+      // file for one session. Text comes back as text; images as a data URL.
+      if (parts[0] === 'v1' && parts[1] === 'sessions' && parts[3] === 'file' && req.method === 'GET') {
+        const id = decodeURIComponent(parts[2])
+        const rel = String(url.searchParams.get('p') ?? '')
+        if (rel === '') return json(res, 400, { error: 'missing_path' })
+        try {
+          const rows = await callList(true).catch(() => [])
+          const cwd = rows.find((r) => r.id === id)?.cwd
+          const target = rel.startsWith('/') ? rel : (cwd ? path.resolve(cwd, rel) : path.resolve(rel))
+          const st = await fsp.stat(target)
+          if (!st.isFile()) return json(res, 404, { error: 'not_a_file' })
+          if (st.size > 2 * 1024 * 1024) return json(res, 413, { error: 'too_large', bytes: st.size })
+          const ext = path.extname(target).toLowerCase().replace('.', '')
+          const imageMedia = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml' }[ext]
+          if (imageMedia) {
+            const buf = await fsp.readFile(target)
+            return json(res, 200, { ok: true, kind: 'image', media: imageMedia, name: path.basename(target), bytes: st.size, url: `data:${imageMedia};base64,${buf.toString('base64')}` })
+          }
+          const buf = await fsp.readFile(target)
+          const textExt = ['txt','md','markdown','json','jsonc','ts','tsx','js','jsx','mjs','cjs','py','rb','go','rs','java','kt','kts','c','h','cpp','hpp','cs','swift','m','sh','bash','zsh','fish','yaml','yml','toml','ini','cfg','conf','env','xml','html','htm','css','scss','sass','less','vue','svelte','sql','graphql','gql','lock','gradle','properties','gitignore','editorconfig','diff','patch','log','csv','tsv','proto','tf','hcl','Dockerfile','makefile','cmake','pl','lua','r','dart','ex','exs','erl','hs','ml','clj','cljs','scala','php','asp','aspx','jl','nim','zig','v','sol','move','prisma']
+          if (textExt.includes(ext) || ext === '' || st.size < 64 * 1024) {
+            return json(res, 200, { ok: true, kind: 'text', media: 'text/plain', name: path.basename(target), bytes: st.size, text: buf.toString('utf8') })
+          }
+          return json(res, 200, { ok: true, kind: 'binary', media: 'application/octet-stream', name: path.basename(target), bytes: st.size })
+        } catch (err) {
+          return json(res, 404, { error: String(err?.code ?? err?.message ?? err) })
+        }
+      }
+
+      // Scheduled tasks (parity with ui-schedule): list, create, edit, delete, run.
+      if (parts[0] === 'v1' && parts[1] === 'schedules') {
+        const svc = (() => { try { return ctx.get('schedule') } catch { return undefined } })()
+        if (!svc || typeof svc.list !== 'function') return json(res, 409, { error: 'schedule unavailable' })
+        const timingText = (t) => {
+          if (!t) return ''
+          if (t.kind === 'cron') return `cron ${t.expression} (${t.timeZone ?? ''})`
+          if (t.kind === 'rrule') return String(t.rrule ?? '').split('\n').filter(Boolean).pop() ?? ''
+          if (t.kind === 'daily') return `每天 ${t.daily?.time ?? ''} (${t.daily?.time_zone ?? ''})`
+          if (t.kind === 'weekly') return `每周 ${t.weekly?.time ?? ''} (${t.weekly?.time_zone ?? ''})`
+          if (t.kind === 'every') return `每 ${Math.round(Number(t.every_seconds ?? 0) / 60)} 分钟`
+          if (t.kind === 'after') return `${Math.round(Number(t.after_seconds ?? 0) / 60)} 分钟后`
+          if (t.kind === 'at') return `at ${typeof t.at === 'string' ? t.at : `${t.at?.date ?? ''} ${t.at?.time ?? ''}`}`
+          return t.kind ?? ''
+        }
+        const mapTask = (t) => ({
+          id: String(t?.id ?? ''),
+          title: truncate(String(t?.title ?? ''), 120),
+          prompt: truncate(String(t?.prompt ?? ''), 400),
+          status: String(t?.status ?? 'active'),
+          kind: String(t?.kind ?? ''),
+          timing: timingText(t),
+          nextAt: t?.scheduledAt ?? null,
+          updatedAt: t?.updatedAt ?? null,
+          targetSessionId: t?.target?.kind === 'session' ? String(t.target.sessionId) : null,
+        })
+        try {
+          if (req.method === 'GET' && parts.length === 2) {
+            const listed = await svc.list({ limit: 100 })
+            const items = Array.isArray(listed?.items) ? listed.items : []
+            return json(res, 200, { items: items.map(mapTask), total: Number(listed?.total ?? items.length) })
+          }
+          const body = await readBody(req)
+          if (req.method === 'POST' && parts.length === 2) {
+            const title = String(body.title ?? '').trim()
+            const prompt = String(body.prompt ?? '').trim()
+            if (title === '' || prompt === '') return json(res, 400, { error: 'title_and_prompt_required' })
+            const timing = body.timing && typeof body.timing === 'object' ? body.timing : { kind: 'daily', daily: { time: '09:00:00', time_zone: 'Asia/Shanghai' } }
+            const created = await svc.create({ title, prompt, timing })
+            return json(res, 200, { ok: true, task: mapTask(created) })
+          }
+          if (parts.length === 4 && req.method === 'POST') {
+            const id = decodeURIComponent(parts[2])
+            if (parts[3] === 'run') { await svc.run({ id }); return json(res, 200, { ok: true }) }
+            if (parts[3] === 'edit') {
+              const patch = {}
+              if (typeof body.title === 'string' && body.title.trim() !== '') patch.title = body.title.trim()
+              if (typeof body.prompt === 'string' && body.prompt.trim() !== '') patch.prompt = body.prompt.trim()
+              if (body.active === true || body.active === false) patch.active = body.active
+              if (body.timing && typeof body.timing === 'object') patch.timing = body.timing
+              const result = await svc.edit({ id, action: 'update', patch, expectedUpdatedAt: null })
+              if (result && typeof result === 'object' && result.code) return json(res, 409, { error: String(result.code) })
+              return json(res, 200, { ok: true, task: mapTask(result) })
+            }
+            if (parts[3] === 'delete') {
+              const result = await svc.edit({ id, action: 'delete', expectedUpdatedAt: null })
+              if (result && typeof result === 'object' && result.code) return json(res, 409, { error: String(result.code) })
+              return json(res, 200, { ok: true })
+            }
+          }
+          return json(res, 404, { error: 'unknown_schedule_route' })
         } catch (err) {
           return json(res, 409, { error: String(err?.message ?? err) })
         }
