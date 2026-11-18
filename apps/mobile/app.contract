@@ -104,6 +104,7 @@ shape MessageRow
   id: string
   role: string
   seq: number
+  msgId: string
   text: string
   plain: string
   usage: string
@@ -466,7 +467,7 @@ component Mobile
   state schedTitle = ""
   state schedPrompt = ""
   state schedTiming = ""
-  state noteMark = 0
+  state noteMark = ""
   state noteDraft = ""
   state doneToast = ""
   state wasRunning = false
@@ -543,6 +544,7 @@ component Mobile
   derive body = (snap.streamText == "" and snap.streamTools.length == 0 ? snap.messages : snap.messages.concat([MessageRow(
       id="streaming", role="assistant",
       seq=2147483000,
+      msgId="",
       text=snap.streamText,
       plain=snap.streamText,
       usage="",
@@ -565,6 +567,7 @@ component Mobile
   derive goalRow = (snap.goal == "" and snap.plan.steps.length == 0 ? [] : [MessageRow(
       id="goal", role="goal",
       seq=-1,
+      msgId="",
       text=snap.goal,
       plain=snap.goal,
       usage="",
@@ -585,10 +588,10 @@ component Mobile
           child="", lazy=false, id=step.id, kind="plan",
       text=step.text, detail="", status=step.state, result="", nodes=[], callId="", icon="", summary="", args="", badge="", todoSummary="", diffs=[], diffHidden=0, todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[])))])
   // A fork child: desktop's InheritedHistory separator at the transcript top.
-  derive seedRow = (snap.inherited and snap.messages.length > 0 ? [MessageRow(id="seed", role="seed", seq=0, text="", plain="", usage="", tools=0, running=0, thought=false, failed=false, thoughtPreview="", changedCount=0, day="", deliverables=[], refs=[], usageTokens=none, interrupted=false, took=0, folded=0, shadow=0, blocks=[])] : [])
+  derive seedRow = (snap.inherited and snap.messages.length > 0 ? [MessageRow(id="seed", role="seed", seq=0, msgId="", text="", plain="", usage="", tools=0, running=0, thought=false, failed=false, thoughtPreview="", changedCount=0, day="", deliverables=[], refs=[], usageTokens=none, interrupted=false, took=0, folded=0, shadow=0, blocks=[])] : [])
   derive thread = seedRow.concat(goalRow.concat(body))
   derive matchRows = snap.messages.filter(m => findQ.trim() != "" and m.text.toLowerCase().includes(findQ.trim().toLowerCase()))
-  derive findRows = [MessageRow(id="find-note", role="note", seq=0, plain="", tools=0, running=0, thought=false, failed=false, thoughtPreview="", changedCount=0, day="", deliverables=[], refs=[], usageTokens=none, interrupted=false, took=0, folded=0, shadow=0, text=(`${matchRows.length} ${matchRows.length == 1 ? "match" : "matches"} in the ${snap.messages.length} ${snap.messages.length == 1 ? "message" : "messages"} loaded here. Older messages load with "Load earlier".`), usage="", blocks=[])].concat(matchRows)
+  derive findRows = [MessageRow(id="find-note", role="note", seq=0, msgId="", plain="", tools=0, running=0, thought=false, failed=false, thoughtPreview="", changedCount=0, day="", deliverables=[], refs=[], usageTokens=none, interrupted=false, took=0, folded=0, shadow=0, text=(`${matchRows.length} ${matchRows.length == 1 ? "match" : "matches"} in the ${snap.messages.length} ${snap.messages.length == 1 ? "message" : "messages"} loaded here. Older messages load with "Load earlier".`), usage="", blocks=[])].concat(matchRows)
   derive slashMatches = commands.commands.filter(c => ("/" + c.name).startsWith(draft.trim().toLowerCase()) and draft.trim() != "/" + c.name)
   derive lastId = match snap.messages.at(-1) { case some(m) => m.id, case none => "" }
   // Entering a session lands on the newest content: the tail of the last message when the
@@ -795,18 +798,18 @@ component Mobile
   action runSched(id: string)
     if not pending(schedRan)
       send schedRan = runSchedule(server, token, id)
-  action openNote(seq: number)
-    noteMark = seq
+  action openNote(id: string)
+    noteMark = id
     noteDraft = ""
   action editNote(v: string)
     noteDraft = v
   action sendNote
-    if noteMark > 0 and not pending(rated)
+    if noteMark != "" and not pending(rated)
       send rated = rateMessage(server, token, selected, noteMark, "negative", noteDraft)
-      noteMark = 0
+      noteMark = ""
       noteDraft = ""
   action closeNote
-    noteMark = 0
+    noteMark = ""
     noteDraft = ""
   action pickMention(name: string)
     draft = `${draft.split("@").slice(0, -1).join("@")}${name} `
@@ -1090,10 +1093,10 @@ component Mobile
       qPicks = qPicks.map(v => "")
       qCustoms = qCustoms.map(v => "")
   // Message feedback (desktop's thumbs on an assistant turn).
-  action rateMsg(seq: number, rating: string)
-    ratedMark = `${seq}:${rating}`
+  action rateMsg(id: string, rating: string)
+    ratedMark = `${id}:${rating}`
     if not pending(rated)
-      send rated = rateMessage(server, token, selected, seq, rating, "")
+      send rated = rateMessage(server, token, selected, id, rating, "")
   // Quote the first line of a turn into the composer, desktop's selection reply.
   action quoteBody(v: string)
     let line = match v.split("\n").at(0) { case some(l) => l, case none => "" }
@@ -1500,10 +1503,10 @@ component Mobile
                               text t("common.copy") font-size="0.69rem" color="-exact-tertiary-label"
                             row press=quoteBody(m.text) padding="6px 8px" border-radius=8 testId=`quote-${m.seq}`
                               text t("chat.quote") font-size="0.69rem" color="-exact-tertiary-label"
-                            row press=rateMsg(m.seq, "positive") padding="6px 8px" border-radius=8 testId=`up-${m.seq}`
-                              text "👍" font-size="0.81rem" opacity=(ratedMark == `${m.seq}:positive` ? 1 : 0.45)
-                            row press=openNote(m.seq) padding="6px 8px" border-radius=8 testId=`down-${m.seq}`
-                              text "👎" font-size="0.81rem" opacity=(ratedMark == `${m.seq}:negative` ? 1 : 0.45)
+                            row press=rateMsg(m.msgId, "positive") padding="6px 8px" border-radius=8 testId=`up-${m.seq}`
+                              text "👍" font-size="0.81rem" opacity=(ratedMark == `${m.msgId}:positive` ? 1 : 0.45)
+                            row press=openNote(m.msgId) padding="6px 8px" border-radius=8 testId=`down-${m.seq}`
+                              text "👎" font-size="0.81rem" opacity=(ratedMark == `${m.msgId}:negative` ? 1 : 0.45)
                             row press=forkHere(m.seq) padding="6px 8px" border-radius=8 testId=`forkhere-${m.seq}`
                               text t("chat.fork") font-size="0.69rem" color="-exact-tertiary-label"
                         if m.usage != ""
@@ -1661,7 +1664,7 @@ component Mobile
                 row gap=8 align-items="center" padding="8px 12px" background-color="surface.card-strong" border-radius=12 margin="0 8px 4px" testId="done-toast"
                   image "symbol:checkmark" color="-exact-system-green" font-size="0.8rem"
                   text doneToast font-size="0.81rem" color="text.ink" flex=1
-              if noteMark > 0
+              if noteMark != ""
                 column gap=8 padding="8px 12px" background-color="surface.card-strong" border-radius=12 margin="0 8px 4px" testId="note-sheet"
                   text t("feedback.noteHint") font-size="0.75rem" color="-exact-secondary-label"
                   textarea value=noteDraft input=editNote field-sizing="content" max-height=100 border="none" background-color="surface.card" padding="6px 8px" border-radius=8 placeholder=t("feedback.noteField") testId="note-input"

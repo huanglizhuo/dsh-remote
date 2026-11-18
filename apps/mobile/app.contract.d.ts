@@ -26,7 +26,7 @@
 //   pairDevice: (args: [string, string]) => PairReply
 //   pairFromLink: (args: [string]) => PairLink
 //   queueItem: (args: [string, string, string, string, string, string]) => Reply
-//   rateMessage: (args: [string, string, string, number, string, string]) => Reply
+//   rateMessage: (args: [string, string, string, string, string, string]) => Reply
 //   renameSession: (args: [string, string, string, string]) => Created
 //   respondApproval: (args: [string, string, string, boolean, boolean]) => Reply
 //   revokeDevice: (args: [string, string, string]) => Reply
@@ -52,7 +52,7 @@
 //   FileRow = { id: string; path: string; text: string }
 //   BlockRow = { id: string; kind: string; text: string; detail: string; status: string; result: string; nodes: MdNode[]; callId: string; child: string; icon: string; summary: string; args: string; lazy: boolean; badge: string; todoSummary: string; diffs: DiffFile[]; diffHidden: number; todos: TodoItem[]; files: FileRow[]; question: string; options: ChoiceItem[]; att: string; media: string; w: number; h: number; images: ImageRow[] }
 //   UsageTokens = { in: number; out: number; cacheRead: number; reasoning: number | null }
-//   MessageRow = { id: string; role: string; seq: number; text: string; plain: string; usage: string; tools: number; running: number; thought: boolean; failed: boolean; thoughtPreview: string; changedCount: number; day: string; deliverables: FileRow[]; refs: FileRow[]; usageTokens: UsageTokens | null; interrupted: boolean; took: number; folded: number; shadow: number; blocks: BlockRow[] }
+//   MessageRow = { id: string; role: string; seq: number; msgId: string; text: string; plain: string; usage: string; tools: number; running: number; thought: boolean; failed: boolean; thoughtPreview: string; changedCount: number; day: string; deliverables: FileRow[]; refs: FileRow[]; usageTokens: UsageTokens | null; interrupted: boolean; took: number; folded: number; shadow: number; blocks: BlockRow[] }
 //   ModelRow = { id: string; name: string; provider: string; current: boolean; efforts: string[] }
 //   ModelsReply = { currentModel: string; currentProvider: string; currentEffort: string; models: ModelRow[] }
 //   DeviceRow = { id: string; name: string; when: string; mine: boolean }
@@ -351,7 +351,7 @@ type T22 = T3 | null;
 type T23 = { "in": T3; "out": T3; "cacheRead": T3; "reasoning": T22; };
 type T24 = T23 | null;
 type T25 = T21[];
-type T26 = { "id": T0; "role": T0; "seq": T3; "text": T0; "plain": T0; "usage": T0; "tools": T3; "running": T3; "thought": T2; "failed": T2; "thoughtPreview": T0; "changedCount": T3; "day": T0; "deliverables": T18; "refs": T18; "usageTokens": T24; "interrupted": T2; "took": T3; "folded": T3; "shadow": T3; "blocks": T25; };
+type T26 = { "id": T0; "role": T0; "seq": T3; "msgId": T0; "text": T0; "plain": T0; "usage": T0; "tools": T3; "running": T3; "thought": T2; "failed": T2; "thoughtPreview": T0; "changedCount": T3; "day": T0; "deliverables": T18; "refs": T18; "usageTokens": T24; "interrupted": T2; "took": T3; "folded": T3; "shadow": T3; "blocks": T25; };
 type T27 = T0[];
 type T28 = { "id": T0; "name": T0; "provider": T0; "current": T2; "efforts": T27; };
 type T29 = T28[];
@@ -583,7 +583,7 @@ export interface SourceMap {
   "pairDevice": { args: [T0, T0]; result: T77 };
   "pairFromLink": { args: [T0]; result: T79 };
   "queueItem": { args: [T0, T0, T0, T0, T0, T0]; result: T75 };
-  "rateMessage": { args: [T0, T0, T0, T3, T0, T0]; result: T75 };
+  "rateMessage": { args: [T0, T0, T0, T0, T0, T0]; result: T75 };
   "renameSession": { args: [T0, T0, T0, T0]; result: T78 };
   "respondApproval": { args: [T0, T0, T0, T2, T2]; result: T75 };
   "revokeDevice": { args: [T0, T0, T0]; result: T75 };

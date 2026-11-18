@@ -52,7 +52,7 @@ function plain(md: string): string {
 }
 
 type WireUsageTokens = { in?: number | null; out?: number | null; cacheRead?: number | null; reasoning?: number | null } | null;
-type WireMessage = { id?: string; role?: string; seq?: number; text?: string; fullText?: string; usage?: string; tools?: number; running?: number; thought?: boolean; interrupted?: boolean; took?: number; folded?: number; shadow?: number; failed?: boolean; changedCount?: number; usageTokens?: WireUsageTokens; deliverables?: { path?: string; text?: string }[]; refs?: { path?: string }[]; day?: string; blocks?: WireBlock[] };
+type WireMessage = { id?: string; role?: string; seq?: number; msgId?: string; text?: string; fullText?: string; usage?: string; tools?: number; running?: number; thought?: boolean; interrupted?: boolean; took?: number; folded?: number; shadow?: number; failed?: boolean; changedCount?: number; usageTokens?: WireUsageTokens; deliverables?: { path?: string; text?: string }[]; refs?: { path?: string }[]; day?: string; blocks?: WireBlock[] };
 type WireSession = { id?: string; title?: string | null; running?: boolean; runStartedAt?: number; pinned?: boolean; archived?: boolean; cwd?: string | null; updatedAt?: number | null; group?: string | null; first?: boolean; when?: string | null };
 type WireApproval = { id?: string; toolName?: string | null; reason?: string | null; command?: string; summary?: string | null; args?: string; plan?: string; diffs?: { id?: string; path?: string; added?: number; removed?: number; lines?: { id?: string; sign?: string; text?: string }[] }[] | null; expiresIn?: number };
 type WireQueue = { id?: string; text?: string };
@@ -232,11 +232,20 @@ const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
     })(),
     messages: (Array.isArray(session?.messages) ? session?.messages ?? [] : []).map((m) => ({
       id: String(m.id ?? ''),
+      msgId: typeof m.msgId === 'string' ? m.msgId : '',
       role: String(m.role ?? 'assistant'),
       seq: typeof m.seq === 'number' ? m.seq : 0,
       // Copy and find want every step of a turn; the screen renders blocks.
-      text: typeof m.fullText === 'string' && m.fullText !== '' ? m.fullText : typeof m.text === 'string' ? m.text : '',
-      plain: plain(typeof m.text === 'string' ? m.text : ''),
+      // Block-only assistant turns (text arrives via md nodes) still expose the
+      // markdown body so the tail actions (copy/quote/feedback) and in-session
+      // find have something to work with.
+      text: typeof m.fullText === 'string' && m.fullText !== '' ? m.fullText : typeof m.text === 'string' && m.text !== '' ? m.text
+        : String(m.role ?? '') === 'assistant'
+          ? (Array.isArray(m.blocks) ? (m.blocks as { kind?: string; text?: string }[]).filter((b) => b && (b.kind === 'md' || b.kind === 'reasoning')).map((b) => typeof b.text === 'string' ? b.text : '').filter((t) => t !== '').join('\n\n') : '')
+          : '',
+      plain: plain(typeof m.text === 'string' && m.text !== '' ? m.text : String(m.role ?? '') === 'assistant' && Array.isArray(m.blocks)
+        ? (m.blocks as { kind?: string; text?: string }[]).filter((b) => b && (b.kind === 'md' || b.kind === 'reasoning')).map((b) => typeof b.text === 'string' ? b.text : '').filter((t) => t !== '').join('\n\n')
+        : ''),
       usage: typeof m.usage === 'string' ? m.usage : '',
       tools: typeof m.tools === 'number' ? m.tools : 0,
       running: typeof m.running === 'number' ? m.running : 0,
@@ -714,10 +723,10 @@ const sources: Sources = {
   },
 
   // Message feedback (ui-message-feedback parity): thumbs up/down on an assistant turn.
-  rateMessage: async ([server, token, id, seq, rating, note]): Promise<Result<'rateMessage'>> => {
+  rateMessage: async ([server, token, id, msgId, rating, note]): Promise<Result<'rateMessage'>> => {
     const path = `/v1/sessions/${encodeURIComponent(String(id))}/feedback`;
     try {
-      const payload: Record<string, unknown> = { seq: Number(seq), rating: rating === 'negative' ? 'negative' : 'positive' };
+      const payload: Record<string, unknown> = { id: String(msgId), rating: rating === 'negative' ? 'negative' : 'positive' };
       if (typeof note === 'string' && note.trim() !== '') payload.note = note.trim();
       const res = await call(server as string, token as string, path, { method: 'POST', body: JSON.stringify(payload) });
       if (res.ok) return { ok: true, error: '' };

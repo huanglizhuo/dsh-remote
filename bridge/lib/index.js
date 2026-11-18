@@ -778,7 +778,7 @@ const usageLine = (inTok, outTok, cacheRead) => {
         cacheRead,
         reasoning: u?.reasoningTokens ?? u?.completionTokensDetails?.reasoningTokens ?? u?.outputTokensDetails?.reasoningTokens ?? null,
       }
-      return { id: `a${ev.seq}`, seq: ev.seq, role: 'assistant', at: ev.time, turn: d.turn ?? null, text, usage, tokens: inTok == null && outTok == null ? null : [inTok ?? 0, outTok ?? 0], cache: cacheRead, usageTokens, interrupted: Boolean(d.interrupted), blocks }
+      return { id: `a${ev.seq}`, seq: ev.seq, role: 'assistant', at: ev.time, turn: d.turn ?? null, msgId: typeof (d.message ?? d)?.id === 'string' ? (d.message ?? d).id : '', text, usage, tokens: inTok == null && outTok == null ? null : [inTok ?? 0, outTok ?? 0], cache: cacheRead, usageTokens, interrupted: Boolean(d.interrupted), blocks }
     }
     if (type === 'compaction/summary') {
       // Desktop CompactionItem: 已折叠 N 项 · M tokens, expandable summary.
@@ -1033,6 +1033,8 @@ const snapshotSession = async (sessionId, take = 8, showArchived = false) => {
         if (m.cache) prev.cache = (prev.cache ?? 0) + m.cache
         prev.interrupted = prev.interrupted || m.interrupted
         prev.seq = m.seq
+        // Message feedback targets the DSH message id; keep the latest step's id.
+        if (m.msgId) prev.msgId = m.msgId
         // Turn duration: desktop's group head shows `✓ N steps · 1m 23s`.
         if (m.at) prev.lastAt = m.at
         continue
@@ -2208,9 +2210,11 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
           }
           const body = await readBody(req)
           const rating = body.rating === 'negative' ? 'negative' : 'positive'
+          // The target is the DSH message id (a UUID); legacy numeric seq kept as fallback.
+          const messageId = typeof body.id === 'string' && body.id !== '' ? body.id : Number(body.seq)
           const result = await svc.put({
             sessionId: id,
-            messageId: Number(body.seq),
+            messageId,
             rating,
             ...(typeof body.note === 'string' && body.note.trim() !== '' ? { note: body.note.trim() } : {}),
             ifVersion: null,

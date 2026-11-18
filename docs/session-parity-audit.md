@@ -208,3 +208,6 @@ A1 文件查看屏 → B5 定时任务 → A4 reasoning 全文 → B8 反馈 not
 ### 第八轮补充验证（同日）
 - ✅ **B7 workflow 编排卡**：在本会话真实运行两阶段 workflow（verify-workflow-card，2 agents）→ transcript 出现 `wf-<runId>` 折叠卡：label「编排 verify-workflow-card」/ status ok / 成员清单「one · step-one ✓completed」「two · step-two ✓completed」。事件源为 tool-workflow/run-start|agent-start|agent-end|run-end。
 - **B6 team board**：渲染代码就绪（/v1/live 附 session.team），但当前无带 agentTeam 投影的会话可验证——待真实团队会话出现后复核。
+
+### B8 修复（第八轮）：反馈 target 修正
+真机 👎 note 流程发现 `target-not-found`：messageFeedback.put 的 messageId 必须是 DSH 消息 UUID（`deriveEventMessage(event).id`），而非事件 seq。已修：bridge assistant 行携带 `msgId`（合并回合保留最后一步的 id），feedback POST 接受 `body.id`（字符串 UUID，兼容旧 seq）；手机端 MessageRow.msgId 贯通，👍/👎/note 全部改用 msgId。离线 mock 验证：合并回合 msgId=msg-uuid-2、POST {id} → svc.put 收到正确 target。（运行中 bridge 为旧模块，重启后真机生效。）
