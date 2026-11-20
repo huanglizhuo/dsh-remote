@@ -490,10 +490,15 @@ shape PlanCard
   title: string
   steps: PlanStep[]
 
-shape Snapshot
+
+// The /v1/live seam's result: Snapshot without messages, hasMore and turns —
+// those come from the rows resource (loadRows), whose revision the live poll
+// carries; the live poll never ships them. Keeping them out of this shape
+// keeps the loadLive source descriptor (and the update stream's frozen
+// cohort envelope) from carrying the whole MessageRow list twice.
+shape LiveCore
   listRev: string
   rowsRev: string
-  hasMore: bool
   plan: PlanCard
   goal: string
   goalId: string
@@ -530,7 +535,6 @@ shape Snapshot
   runLabel: string
   runActivity: option<ActivityRow>
   stats: StatsRow
-  messages: MessageRow[]
   approvals: ApprovalRow[]
   queue: QueueRow[]
   todos: TodoRow[]
@@ -541,8 +545,6 @@ shape Snapshot
   // The attempt streaming right now, as blocks that continue the open turn's groups.
   streamBlocks: BlockRow[]
   prefs: PrefsRow
-  // Every turn number of the session (the turn rail); empty while the Mac serves no turn outline.
-  turns: number[]
   balance: option<BalanceView>
   context: option<ContextRow>
   quota: string
@@ -850,9 +852,16 @@ component Mobile
   // The language the bridge words its own rows in (steering marker, triggers, context, compaction, commands, retries,
   // failures): the one chosen in Settings, else the table the system picked for the app.
   derive effLang = lang != "" ? lang : t("lang.code")
-  resource live = loadLive(server, token, selected, listRev, showArchived, effLang) when token != "" as shape Snapshot else empty()
+  resource live = loadLive(server, token, selected, listRev, showArchived, effLang) when token != "" as shape LiveCore else empty()
   resource rows = loadRows(server, token, selected, take, live.rowsRev, effLang) when token != "" and selected != "" as shape Rows else empty()
-  derive snap = Snapshot(live, sessions=(listRows.length > 0 ? listRows : live.sessions), messages=(selected == "" ? [] : rows.rows), hasMore=(selected == "" ? false : rows.hasMore), turns=(selected == "" ? [] : rows.turns))
+  // The UI's snapshot: the live poll's LiveCore, with the sessions list's
+  // cache preferred. Rows-sourced state (messages/hasMore/turns) is derived
+  // below — the Snapshot wrap this replaced forced the live seam to carry
+  // those fields (and their descriptor) a second time.
+  derive snap = LiveCore(live, sessions=(listRows.length > 0 ? listRows : live.sessions))
+  derive msgs = selected == "" ? [] : rows.rows
+  derive rowsMore = selected == "" ? false : rows.hasMore
+  derive turnList = selected == "" ? [] : rows.turns
   resource view = exactViewport() as shape Viewport
   // Composer takeover (the desktop's composer chain): a pending question / plan review wins the seat, then an
   // approval (the newest one, as the desktop shows the last published).
@@ -876,10 +885,10 @@ component Mobile
   derive keepAll = snap.prefs.foldedReplies != "final"
   // With "next input" timing the latest exchange stays open until the person sends again (a send still in flight folds it at once).
   derive deferNext = snap.prefs.collapseTiming == "next-input" and not (echoText != "" and lastUserText != echoText)
-  derive lastUserSeq = match snap.messages.filter(m => m.role == "user").at(-1) { case some(m) => m.seq, case none => -1 }
+  derive lastUserSeq = match msgs.filter(m => m.role == "user").at(-1) { case some(m) => m.seq, case none => -1 }
   derive steer = steerPick != "" ? steerPick == "steer" : snap.prefs.busyEnter == "steer"
   derive detailedUsage = snap.prefs.performanceUsage != "compact"
-  derive liveRows = (snap.running ? snap.messages.filter(m => m.active).map(m => m.id) : []).concat(["streaming"])
+  derive liveRows = (snap.running ? msgs.filter(m => m.active).map(m => m.id) : []).concat(["streaming"])
   // A subagent child takes no prompts, unless it can continue (DSH's read-only composer).
   derive readOnly = snap.origin == "subagent" and snap.subagentMode != "continuable"
   // Files go to the host's staging under the session's own agent: a subagent child takes pictures only.
@@ -1041,18 +1050,18 @@ component Mobile
   derive goalErr = match goalSet { case some(r) => r.error, case none => "" }
   // The settled transcript plus the attempt still streaming: its blocks run on in the open turn's row (its groups continue), or
   // are the turn's first assistant row while it has none yet; one `for` holds the list.
-  derive body = snap.streamBlocks.length == 0 ? snap.messages : (snap.messages.filter(m => m.active).length > 0 ? snap.messages.map(m => m.active ? MessageRow(m, blocks=m.blocks.concat(snap.streamBlocks)) : m) : snap.messages.concat([blankRow("streaming", "assistant", 2147483000, "", snap.streamBlocks, true)]))
+  derive body = snap.streamBlocks.length == 0 ? msgs : (msgs.filter(m => m.active).length > 0 ? msgs.map(m => m.active ? MessageRow(m, blocks=m.blocks.concat(snap.streamBlocks)) : m) : msgs.concat([blankRow("streaming", "assistant", 2147483000, "", snap.streamBlocks, true)]))
   derive goalRow = (snap.plan.steps.length == 0 ? [] : [blankRow("goal", "goal", -1, "", snap.plan.steps.map(step => BlockRow(
       child="", lazy=false, id=step.id, kind="plan",
       text=step.text, detail="", status=step.state, result="", nodes=[], callId="", icon="", summary="", args="", badge="", todoSummary="", diffs=[], diffHidden=0, todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[], ask=none, grp="", answer=false, title="", suffix="", added=0, removed=0, view=ToolView(kind="", head="", tone="", more=0, parts=[]))), false)])
   // A fork child: desktop's InheritedHistory separator at the transcript top.
-  derive seedRow = (snap.inherited and snap.messages.length > 0 ? [blankRow("seed", "seed", 0, "", [], false)] : [])
+  derive seedRow = (snap.inherited and msgs.length > 0 ? [blankRow("seed", "seed", 0, "", [], false)] : [])
   derive threadBase = seedRow.concat(goalRow.concat(body))
   // Each assistant row's presentation: whether its process is folded behind the turn control, whether group headers stand in for
   // their members, and which group is live. A row is in the latest exchange when it follows the last user message.
   derive thread = threadBase.map(m => m.role == "assistant" ? MessageRow(m, blocks=(openCall != "" and dCallId == openCall ? m.blocks.map(b => b.callId == openCall ? BlockRow(b, view=dView) : b) : m.blocks), fold=rowFold(m, foldOn, turnPicks, deferNext and m.seq > lastUserSeq), grouped=rowGrouped(m, groupMode, deferNext and m.seq > lastUserSeq), liveGroup=(m.active and snap.running ? lastGrp(m.blocks) : "")) : m)
-  derive matchRows = snap.messages.filter(m => (m.role == "user" or m.role == "assistant") and findQ.trim() != "" and m.text.toLowerCase().includes(findQ.trim().toLowerCase()))
-  derive findRows = [blankRow("find-note", "note", 0, t("find.note", n=matchRows.length, total=snap.messages.length), [], false)].concat(matchRows)
+  derive matchRows = msgs.filter(m => (m.role == "user" or m.role == "assistant") and findQ.trim() != "" and m.text.toLowerCase().includes(findQ.trim().toLowerCase()))
+  derive findRows = [blankRow("find-note", "note", 0, t("find.note", n=matchRows.length, total=msgs.length), [], false)].concat(matchRows)
   // The slash menu: the host's commands, the client-side ones (file, model) and the skills, in the official sections and usage order.
   derive localSlash = [SlashRow(name="file", label=cmdLabel("file"), description="", hint="", kind="local", section="add", rank=0), SlashRow(name="model", label=cmdLabel("model"), description=cmdDesc("model", ""), hint="", kind="local", section="commands", rank=12)]
   derive slashAll = sortBy(commands.commands.map(c => SlashRow(name=c.name, label=cmdLabel(c.name), description=cmdDesc(c.name, c.description), hint=c.hint, kind="command", section=cmdSection(c.name), rank=cmdRank(c.name))).concat(localSlash).concat(commands.skills.map(k => SlashRow(name=k.name, label="", description=(k.userOnly ? `${t("cmd.userOnly")} · ${k.description}` : k.description), hint="", kind="skill", section="skills", rank=100))), r => r.rank)
@@ -1066,15 +1075,15 @@ component Mobile
   derive slashKind = match slashHit { case some(r) => r.kind, case none => "" }
   // The ghost hint once a command is picked and its arguments are still to type (plan: describe the task; goal: the objective, or the goal's verbs).
   derive slashHint = (slashKnown and slashArgs == "" and draft.endsWith(" ")) ? (slashName == "goal" ? (snap.goalId != "" ? t("hint.goal.active") : t("hint.goal")) : (slashName == "plan" ? t("hint.plan") : (match slashHit { case some(r) => r.hint, case none => "" }))) : ""
-  derive lastId = match snap.messages.at(-1) { case some(m) => m.id, case none => "" }
+  derive lastId = match msgs.at(-1) { case some(m) => m.id, case none => "" }
   // Entering a session lands on the newest content: the tail of the last message when the
   // turn has already answered, or the start of the pending prompt while it is still running.
   // The newest thing the person said: the last user row, or a steering block the turn's assistant row took in after it.
-  derive tailRow = snap.messages.filter(m => m.role == "user" or m.role == "assistant").at(-1)
+  derive tailRow = msgs.filter(m => m.role == "user" or m.role == "assistant").at(-1)
   derive lastSteer = match tailRow { case some(m) => m.role == "assistant" ? (match m.blocks.filter(b => b.kind == "steer").at(-1) { case some(b) => b.text, case none => "" }) : "", case none => "" }
-  derive lastUserText = lastSteer != "" ? lastSteer : (match snap.messages.filter(m => m.role == "user").at(-1) { case some(u) => u.text, case none => "" })
-  derive anchor = match snap.messages.at(-1) { case some(m) => m.role == "user" ? m.id : m.id, case none => "" }
-  derive anchorEnd = match snap.messages.at(-1) { case some(m) => m.role != "user", case none => false }
+  derive lastUserText = lastSteer != "" ? lastSteer : (match msgs.filter(m => m.role == "user").at(-1) { case some(u) => u.text, case none => "" })
+  derive anchor = match msgs.at(-1) { case some(m) => m.role == "user" ? m.id : m.id, case none => "" }
+  derive anchorEnd = match msgs.at(-1) { case some(m) => m.role != "user", case none => false }
   derive shown = snap.sessions.filter(s => query.trim() == "" or (s.title == "" ? t("list.untitled") : s.title).toLowerCase().includes(query.trim().toLowerCase()) or s.cwd.toLowerCase().includes(query.trim().toLowerCase()))
 
   task tick mount
@@ -1121,12 +1130,12 @@ component Mobile
   // TurnNavigator parity (mobile): one chip per turn of the session (the Mac's outline; the loaded turns while it serves none).
   // A loaded turn opens with a user's message or the trigger that woke it (steering inside a turn is no turn): tapping scrolls
   // to that row. An unloaded one grows the window until it is loaded (a few polls), then scrolls to it.
-  derive turnRows = snap.messages.filter(m => m.role == "user" or m.role == "trigger")
-  derive railTurns = snap.turns.length > 0 ? snap.turns : turnRows.map(r => r.turn)
+  derive turnRows = msgs.filter(m => m.role == "user" or m.role == "trigger")
+  derive railTurns = turnList.length > 0 ? turnList : turnRows.map(r => r.turn)
   derive lastTurn = match railTurns.at(-1) { case some(v) => v, case none => 0 }
   // The turn the transcript is on now: while following the end, the top edge sits on an
   // older reply, so take the newest turn; otherwise the turn of the row under the top edge.
-  derive curTurn = stick ? lastTurn : match first(snap.messages.filter(m => m.id == topKey)) { case some(m) => (m.turn >= 1 ? m.turn : 1), case none => lastTurn }
+  derive curTurn = stick ? lastTurn : match first(msgs.filter(m => m.id == topKey)) { case some(m) => (m.turn >= 1 ? m.turn : 1), case none => lastTurn }
   action jumpTurn(id: string)
     stick = false
     scrollIntoView("transcript", id, block="start", behavior="smooth")
@@ -1135,7 +1144,7 @@ component Mobile
     if at != ""
       jumpTurn(at)
     else
-      if snap.hasMore
+      if rowsMore
         jumpWant = n
         jumpTries = 0
         stick = false
@@ -1178,10 +1187,10 @@ component Mobile
     if forkedHereId != "" and forkedHereId != lastFork
       lastFork = forkedHereId
       receipt = t("chat.forkedHere")
-    let grew = snap.messages.length != loadedCount
+    let grew = msgs.length != loadedCount
     if grew
       loadingMore = false
-    loadedCount = snap.messages.length
+    loadedCount = msgs.length
     // Prepend compensation, applied on the tick the window grows and once more on the
     // next tick: the virtual list lays the new rows out a frame later.
     let armed = grew and anchorKey != ""
@@ -1560,7 +1569,7 @@ component Mobile
   action editQuery(v: string)
     query = v
   action loadFrom(key: string, offset: number)
-    if snap.hasMore and not loadingMore
+    if rowsMore and not loadingMore
       stick = false
       loadingMore = true
       moreErr = ""
@@ -1576,7 +1585,7 @@ component Mobile
     // The pinned bar rows ("more", "goal") are not messages: anchoring on them
     // restores to the very top, which reads as "the list jumped to the oldest".
     let synthetic = raw == "more" or raw == "goal"
-    let firstReal = match first(snap.messages) { case some(m) => m.id, case none => "" }
+    let firstReal = match first(msgs) { case some(m) => m.id, case none => "" }
     let k = synthetic ? firstReal : raw
     let off = synthetic ? 0.0 : e.firstVisibleOffset
     let armed = topArmed
@@ -1590,7 +1599,7 @@ component Mobile
     // Armed stays armed while scrolling up: it used to be re-derived from
     // "scrollTop > 200" on every event, so creeping up past 200 disarmed the
     // trigger and reaching the top did nothing. It now only clears after a load.
-    let willLoad = (armed or armAgain) and reachTop and pinned == selected and snap.hasMore and not loadingMore
+    let willLoad = (armed or armAgain) and reachTop and pinned == selected and rowsMore and not loadingMore
     if willLoad
       loadFrom(k, off)
       topArmed = false
@@ -1931,7 +1940,7 @@ component Mobile
                 text (snap.parentTitle != "" ? snap.parentTitle : t("subagent.parent")) font-size="0.69rem" color="brand.fill" line-clamp=1 testId="breadcrumb-parent"
                 image "symbol:forward-chevron" font-size="0.5rem" color="-exact-tertiary-label"
                 text (snap.agentLabel != "" ? snap.agentLabel : snap.sessionTitle) font-size="0.69rem" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0 testId="breadcrumb-agent"
-            if (nearTop and snap.hasMore) or loadingMore or moreErr != ""
+            if (nearTop and rowsMore) or loadingMore or moreErr != ""
               row justify-content="center" align-items="center" height=36 background-color="surface.page"
                 if loadingMore
                   text t("list.loading") font-size="0.8rem" color="-exact-secondary-label" testId="more-loading"
@@ -2201,7 +2210,7 @@ component Mobile
                     text act.label font-size="0.72rem" color="-exact-secondary-label" padding="0 12px 6px 32px" line-clamp=2 testId="running-activity"
                 case none
                   text ""
-            if snap.messages.length == 0 and snap.streamBlocks.length == 0
+            if msgs.length == 0 and snap.streamBlocks.length == 0
               text t("chat.hint") font="-exact-footnote" color="-exact-secondary-label" padding="4px 16px"
             if snap.quota != "" and quotaSeen != snap.quotaId
               column padding="0 12px 6px 12px"

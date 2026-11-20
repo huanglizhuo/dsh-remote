@@ -2410,6 +2410,21 @@ const toolView = (lang, b, env) => {
   return view
 }
 
+/**
+ * The registered workspace owning a directory, or null. The desktop groups
+ * sessions by the workspace registry alone, and the Host attaches a created
+ * session to its workspace only when the create request names workspaceId
+ * (session-controller commands.create; a cwd-only create stays Ungrouped).
+ * So the phone's directory-shaped choice must resolve to a registry workspace
+ * before creating: the record path is stored canonical (realpath), so compare
+ * canonical spellings and accept both entity shapes (`w.path` / `w.record.path`).
+ */
+export const workspaceForCwd = (cwd, workspaces) => {
+  let canonical = ''
+  try { canonical = fs.realpathSync(cwd) } catch { canonical = path.resolve(cwd) }
+  return (workspaces ?? []).find((w) => (w.record?.path ?? w.path ?? '') === canonical) ?? null
+}
+
 export function apply(ctx, config = {}) {
   const port = Number(process.env.DSH_MOBILE_BRIDGE_PORT ?? config.port ?? 8787)
   // Tool calls whose assistant message is not in the page; filled per snapshot and
@@ -5980,8 +5995,22 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
 
       if (url.pathname === '/v1/sessions' && req.method === 'POST') {
         const body = await readBody(req)
-        const request = {}
-        if (typeof body.cwd === 'string' && body.cwd !== '') request.cwd = body.cwd
+        // Grouping parity with the desktop (see workspaceForCwd): create through the
+        // workspace registry so the Host attaches the session to its group. A directory
+        // no workspace owns yet registers first — idempotent per canonical path, the
+        // same registration the desktop's directory picker performs; a path that
+        // cannot register (missing / not a directory) falls back to a cwd-only create.
+        let request = {}
+        if (typeof body.cwd === 'string' && body.cwd !== '') {
+          const registry = ctx.get('workspaceRegistry')
+          let workspace = null
+          try { workspace = workspaceForCwd(body.cwd, registry?.list?.() ?? []) } catch { workspace = null }
+          if (!workspace && registry && typeof registry.create === 'function') {
+            try { workspace = await registry.create(body.cwd) } catch { /* unregistrable: create by cwd */ }
+          }
+          const id = workspace?.id ?? workspace?.workspaceId
+          request = id !== undefined ? { workspaceId: id } : { cwd: body.cwd }
+        }
         try {
           const created = await sc().create(request, new AbortController().signal)
           return json(res, 200, { id: created.sessionId })

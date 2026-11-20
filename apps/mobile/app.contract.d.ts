@@ -23,7 +23,7 @@
 //   loadFeedback: (args: [string, string, string]) => FeedbackReply
 //   loadFile: (args: [string, string, string, string]) => FileDoc
 //   loadJobOutput: (args: [string, string, string, string, number]) => JobOutput
-//   loadLive: (args: [string, string, string, string, boolean, string]) => Snapshot
+//   loadLive: (args: [string, string, string, string, boolean, string]) => LiveCore
 //   loadModels: (args: [string, string, string]) => ModelsReply
 //   loadRefs: (args: [string, string, string, string, boolean, string]) => RefsReply
 //   loadRows: (args: [string, string, string, number, string, string]) => Rows
@@ -107,7 +107,7 @@
 //   PlanCard = { title: string; steps: PlanStep[] }
 //   LimitsRow = { images: number; files: boolean; fileBytes: number }
 //   ContextRow = { used: number; total: number; system: number; tools: number; messages: number }
-//   Snapshot = { listRev: string; rowsRev: string; hasMore: boolean; plan: PlanCard; goal: string; goalId: string; pinned: boolean; archived: boolean; goalPhase: string; goalActivation: string; goalRounds: number; goalMax: number; goalReason: string; continueSeq: number; planMode: string; limits: LimitsRow; origin: string; subagentMode: string; parentId: string; parentTitle: string; agentLabel: string; subagentProgress: string; sessionCwd: string; bridgeApi: number; bridgeOpen: boolean; sessions: SessionRow[]; sessionTitle: string; sessionModel: string; sessionPermission: string; permissionOptions: OptionRow[]; running: boolean; inherited: boolean; runLabel: string; runActivity: ActivityRow | null; stats: StatsRow; messages: MessageRow[]; approvals: ApprovalRow[]; queue: QueueRow[]; todos: TodoRow[]; jobs: JobRow[]; subagents: SubagentRow[]; team: TeamRow[]; question: QuestionRow | null; streamBlocks: BlockRow[]; prefs: PrefsRow; turns: number[]; balance: BalanceView | null; context: ContextRow | null; quota: string; quotaId: string }
+//   LiveCore = { listRev: string; rowsRev: string; plan: PlanCard; goal: string; goalId: string; pinned: boolean; archived: boolean; goalPhase: string; goalActivation: string; goalRounds: number; goalMax: number; goalReason: string; continueSeq: number; planMode: string; limits: LimitsRow; origin: string; subagentMode: string; parentId: string; parentTitle: string; agentLabel: string; subagentProgress: string; sessionCwd: string; bridgeApi: number; bridgeOpen: boolean; sessions: SessionRow[]; sessionTitle: string; sessionModel: string; sessionPermission: string; permissionOptions: OptionRow[]; running: boolean; inherited: boolean; runLabel: string; runActivity: ActivityRow | null; stats: StatsRow; approvals: ApprovalRow[]; queue: QueueRow[]; todos: TodoRow[]; jobs: JobRow[]; subagents: SubagentRow[]; team: TeamRow[]; question: QuestionRow | null; streamBlocks: BlockRow[]; prefs: PrefsRow; balance: BalanceView | null; context: ContextRow | null; quota: string; quotaId: string }
 //   Rows = { rev: string; hasMore: boolean; turns: number[]; rows: MessageRow[] }
 //   CallDetail = { callId: string; name: string; title: string; args: string; result: string; view: ToolView }
 //   Reply = { ok: boolean; error: string }
@@ -454,20 +454,20 @@ type T94 = { "images": T3; "files": T2; "fileBytes": T3; };
 type T95 = T4[];
 type T96 = T1[];
 type T97 = T67 | null;
-type T98 = T47[];
-type T99 = T63[];
-type T100 = T83[];
-type T101 = T72[];
-type T102 = T71[];
-type T103 = T70[];
-type T104 = T74[];
-type T105 = T90 | null;
-type T106 = T3[];
-type T107 = T66 | null;
-type T108 = { "used": T3; "total": T3; "system": T3; "tools": T3; "messages": T3; };
-type T109 = T108 | null;
-type T110 = { "listRev": T0; "rowsRev": T0; "hasMore": T2; "plan": T93; "goal": T0; "goalId": T0; "pinned": T2; "archived": T2; "goalPhase": T0; "goalActivation": T0; "goalRounds": T3; "goalMax": T3; "goalReason": T0; "continueSeq": T3; "planMode": T0; "limits": T94; "origin": T0; "subagentMode": T0; "parentId": T0; "parentTitle": T0; "agentLabel": T0; "subagentProgress": T0; "sessionCwd": T0; "bridgeApi": T3; "bridgeOpen": T2; "sessions": T95; "sessionTitle": T0; "sessionModel": T0; "sessionPermission": T0; "permissionOptions": T96; "running": T2; "inherited": T2; "runLabel": T0; "runActivity": T97; "stats": T68; "messages": T98; "approvals": T99; "queue": T100; "todos": T101; "jobs": T102; "subagents": T103; "team": T104; "question": T105; "streamBlocks": T46; "prefs": T69; "turns": T106; "balance": T107; "context": T109; "quota": T0; "quotaId": T0; };
-type T111 = { "rev": T0; "hasMore": T2; "turns": T106; "rows": T98; };
+type T98 = T63[];
+type T99 = T83[];
+type T100 = T72[];
+type T101 = T71[];
+type T102 = T70[];
+type T103 = T74[];
+type T104 = T90 | null;
+type T105 = T66 | null;
+type T106 = { "used": T3; "total": T3; "system": T3; "tools": T3; "messages": T3; };
+type T107 = T106 | null;
+type T108 = { "listRev": T0; "rowsRev": T0; "plan": T93; "goal": T0; "goalId": T0; "pinned": T2; "archived": T2; "goalPhase": T0; "goalActivation": T0; "goalRounds": T3; "goalMax": T3; "goalReason": T0; "continueSeq": T3; "planMode": T0; "limits": T94; "origin": T0; "subagentMode": T0; "parentId": T0; "parentTitle": T0; "agentLabel": T0; "subagentProgress": T0; "sessionCwd": T0; "bridgeApi": T3; "bridgeOpen": T2; "sessions": T95; "sessionTitle": T0; "sessionModel": T0; "sessionPermission": T0; "permissionOptions": T96; "running": T2; "inherited": T2; "runLabel": T0; "runActivity": T97; "stats": T68; "approvals": T98; "queue": T99; "todos": T100; "jobs": T101; "subagents": T102; "team": T103; "question": T104; "streamBlocks": T46; "prefs": T69; "balance": T105; "context": T107; "quota": T0; "quotaId": T0; };
+type T109 = T3[];
+type T110 = T47[];
+type T111 = { "rev": T0; "hasMore": T2; "turns": T109; "rows": T110; };
 type T112 = { "callId": T0; "name": T0; "title": T0; "args": T0; "result": T0; "view": T40; };
 type T113 = { "ok": T2; "error": T0; };
 type T114 = { "id": T0; "name": T0; "kind": T0; "sid": T0; "bytes": T3; };
@@ -656,7 +656,7 @@ export interface SourceMap {
   "loadFeedback": { args: [T0, T0, T0]; result: T79 };
   "loadFile": { args: [T0, T0, T0, T0]; result: T75 };
   "loadJobOutput": { args: [T0, T0, T0, T0, T3]; result: T80 };
-  "loadLive": { args: [T0, T0, T0, T0, T2, T0]; result: T110 };
+  "loadLive": { args: [T0, T0, T0, T0, T2, T0]; result: T108 };
   "loadModels": { args: [T0, T0, T0]; result: T50 };
   "loadRefs": { args: [T0, T0, T0, T0, T2, T0]; result: T62 };
   "loadRows": { args: [T0, T0, T0, T3, T0, T0]; result: T111 };

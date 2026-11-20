@@ -395,7 +395,9 @@ const mapBlock = (b: WireBlock, i: number) => ({
 });
 
 // One mapper for every snapshot-shaped response (snapshot, live, transcript).
-const mapSnapshot = (body: WireSnapshot): Result<'loadLive'> => {
+// Inferred: the full snapshot object; the loadLive seam narrows it (below) to
+// LiveCore, which carries no messages/hasMore — those belong to the rows seam.
+const mapSnapshot = (body: WireSnapshot) => {
   const rows = Array.isArray(body.sessions) ? body.sessions : [];
   const session = body.session ?? null;
   const streaming = session?.streaming ?? null;
@@ -756,8 +758,11 @@ const sources: Sources = {
     const res = await call(server as string, token as string, `/v1/live${query}`);
     if (res.status === 401) throw new Error('unauthorized');
     if (!res.ok) throw new Error(await reason(res));
-    const mapped = mapSnapshot((await res.json()) as WireSnapshot);
-    return { ...mapped, messages: [] };
+    // The live poll ships no rows; the seam type (LiveCore) drops messages and
+    // hasMore too, keeping the loadLive source descriptor — the update stream's
+    // frozen cohort envelope — from carrying the MessageRow shape a second time.
+    const { messages: _messages, hasMore: _hasMore, turns: _turns, ...core } = mapSnapshot((await res.json()) as WireSnapshot);
+    return core;
   },
   // The heavy poll: fetched when the transcript revision moves. While the session,
   // window size and cursor all hold, the bridge sends only rows newer than the
