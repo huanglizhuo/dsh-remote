@@ -16,3 +16,371 @@ test "the scan screen takes a pairing link"
 test "a dshm link opens the pairing handoff"
   type "app" "dshm://pair?u=http%3A%2F%2F127.0.0.1%3A9&d=http%3A%2F%2F127.0.0.1%3A9&c=123456"
   expect state openUrl in "http://127.0.0.1:9" "dshm://pair?u=http%3A%2F%2F127.0.0.1%3A9&d=http%3A%2F%2F127.0.0.1%3A9&c=123456"
+
+// The composer against a stubbed bridge (the web host intercepts these fetches): 继续生成 after a continuable failure, the plan chip, the goal strip, the
+// context meter and the slash menu's sections, commands and skills. Ends on the list so verify's screen checks stay on the screens it already covers.
+test "the composer shows 继续生成, the plan chip, the goal strip, the meter and the slash menu" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Stub chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1m"}],"session":{"id":"sA","title":"Stub chat","model":"m","permission":"default","continueSeq":14,"planMode":"on","goal":"Ship it","goalId":"g1","goalPhase":"blocked","goalInfo":{"rounds":2,"max":20,"reason":"Needs a key","activation":"armed"},"context":{"used":50,"total":100,"system":10,"tools":20,"messages":20},"messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":33554432}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:10:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
+  answer fetch "http://bridge.test/v1/sessions/sA/commands" with 200 {"commands":[{"name":"plan","description":"Enter or leave plan mode","hint":"[off|message]"},{"name":"compact","description":"Compact","hint":""},{"name":"export","description":"never listed by the bridge","hint":""}],"skills":[{"name":"deploy","description":"Ship it","userOnly":false}]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  expect tree has "continue"
+  expect tree has "plan-chip"
+  expect text "goal-phase" == "Blocked Goal"
+  expect text "goal-reason" == "Blocker: Needs a key"
+  expect tree has "ctx-meter"
+  type "draft" "/"
+  clock data
+  expect tree has "cmd-section-add"
+  expect tree has "cmd-plan"
+  expect tree has "cmd-file"
+  expect tree has "cmd-deploy"
+  type "draft" "draft kept per session"
+  clock data
+  expect text "draft" == "draft kept per session"
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back
+
+// The jump strip: the turn rail and the jump-to-end chip share one row, the chip shows only
+// away from the end, and the number of the turn under the top edge stays the highlighted one.
+test "the jump strip keeps the rail and the jump-to-end chip on one row, the current turn lit" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Stub chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1m"}],"session":{"id":"sA","title":"Stub chat","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":33554432}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:12:en","hasMore":false,"seq":6,"turns":[1,2,3],"ids":["u1","a2","u3","a4","u5","a6"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"first request","blocks":[]},{"id":"a2","role":"assistant","seq":2,"turn":1,"msgId":"m1","text":"first reply","state":"done","blocks":[{"id":"b2","kind":"md","text":"first reply body","nodes":[{"id":"n2","t":"p","v":"first reply body."}]}]},{"id":"u3","role":"user","seq":3,"turn":2,"text":"second request","blocks":[]},{"id":"a4","role":"assistant","seq":4,"turn":2,"msgId":"m2","text":"second reply","state":"done","blocks":[{"id":"b4","kind":"md","text":"second reply body","nodes":[{"id":"n4","t":"p","v":"second reply body."}]}]},{"id":"u5","role":"user","seq":5,"turn":3,"text":"third request","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":3,"msgId":"m3","text":"third reply","state":"done","blocks":[{"id":"b6","kind":"md","text":"third reply body","nodes":[{"id":"n6","t":"p","v":"third reply body."}]}]}]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  expect tree has "turn-rail"
+  expect tree has "turn-1"
+  expect tree has "turn-3"
+  expect state curTurn == 3
+  tap "turn-1"
+  clock settle
+  clock + 600 real
+  clock settle
+  expect tree has "jump-latest"
+  expect layout "jump-strip" height <= 48
+  tap "jump-latest"
+  clock settle
+  clock + 400 real
+  expect tree missing "jump-latest"
+  expect state curTurn == 3
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back
+
+// Wave 6 against a stubbed bridge (the web host intercepts these fetches). Each test ends on the list so verify's screen checks stay on screens it covers.
+test "the list shows unread dots, running subagents and an older bridge" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Done chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1min","unread":"done"},{"id":"sB","title":"Broken","cwd":"/work","updatedAt":1,"group":"work","first":false,"when":"2min","unread":"failed"},{"id":"sC","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":false,"when":"3min","subs":2}],"session":null,"prefs":{},"limits":{}}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  clock +1500
+  clock data
+  expect text "unread-sA" == "Unread"
+  expect text "unread-sB" == "Run failed"
+  expect text "attention-sC" == "2 subagents running"
+  expect tree has "bridge-old"
+  tap "settings"
+  type "token" ""
+  back
+
+test "a current bridge shows no version hint" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":null,"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  clock +1500
+  clock data
+  expect tree has "session-sA"
+  expect tree missing "bridge-old"
+  tap "settings"
+  type "token" ""
+  back
+
+test "a turn's tail: feedback dialog, changed files and the comparison page" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"9:8:11:en","hasMore":false,"seq":9,"turns":[1],"ids":["u1","a5"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"edit the docs","blocks":[]},{"id":"a5","role":"assistant","seq":5,"turn":1,"msgId":"m1","text":"done","title":"Completed","state":"done","changedCount":5,"changesSeq":9,"changedAdded":12,"changedRemoved":3,"changedFiles":[{"path":"a.txt","name":"a.txt","added":1,"removed":1,"i":0,"note":""},{"path":"b.txt","name":"b.txt","added":2,"removed":0,"i":1,"note":""},{"path":"c.txt","name":"c.txt","added":3,"removed":1,"i":2,"note":""},{"path":"d.png","name":"d.png","added":0,"removed":0,"i":3,"note":"binary"},{"path":"e.txt","name":"e.txt","added":6,"removed":1,"i":4,"note":""}],"deliverables":[{"path":"report.md","text":"the report"}],"blocks":[{"id":"b0","kind":"md","text":"done","nodes":[{"id":"n0","t":"p","v":"done"}]}]}]}
+  answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 200 {"items":[],"ok":true}
+  answer fetch "http://bridge.test/v1/sessions/sA/changes" with 200 {"kind":"text","name":"a.txt","added":1,"removed":1,"created":false,"deleted":false,"coarse":false,"cut":false,"lines":[{"id":"l0","n":0,"sign":"#","text":"@@ -1,3 +1,3 @@"},{"id":"l1","n":1,"sign":" ","text":"one"},{"id":"l2","n":0,"sign":"-","text":"two"},{"id":"l3","n":2,"sign":"+","text":"TWO"}]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  expect text "changed-5-title" == "Edited 5 files"
+  expect tree has "changed-5-cf3"
+  expect tree missing "changed-5-cf4"
+  tap "changed-5-fold"
+  expect tree has "changed-5-cf4"
+  expect tree has "dl-open-dl0-mac"
+  tap "down-5"
+  expect tree has "feedback-dialog"
+  tap "fb-cat-task-result"
+  type "feedback-text" "wrong"
+  tap "feedback-submit"
+  clock data
+  clock data
+  expect tree missing "feedback-dialog"
+  expect text "done-toast" == "Thanks for your feedback"
+  tap "changed-5-cf0"
+  clock data
+  expect text "diff-name" == "a.txt"
+  expect tree has "diff-lines"
+  expect tree has "diff-open-mac"
+  back
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back
+
+test "the session menu lists the subagent tree, the environment and a job's output" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Parent","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[],"subagentProgress":"1 in progress · 1 completed","subagents":[{"id":"sC","label":"Writer","sessionId":"sC","sub":"writer","mode":"continuable","modeCode":"continuable","activity":"running","state":"running","meta":"3.5K tok · 1m 5s","depth":0},{"id":"sG","label":"Grep it","sessionId":"sG","sub":"","mode":"one-shot","modeCode":"one-shot","activity":"completed","state":"completed","meta":"90 tok","depth":1}],"jobs":[{"id":"bash-1","kind":"bash","label":"sleep 9","status":"running","state":"running","progress":"","detail":"","when":"1min"}]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:11:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
+  answer fetch "http://bridge.test/v1/sessions/sA/job" with 200 {"text":"hello from the job","more":false,"status":"running"}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  tap "chat-menu"
+  expect text "subagent-progress" == "1 in progress · 1 completed"
+  expect text "sub-label-sC" == "Writer"
+  expect text "sub-state-sC" == "writer · continuable · running"
+  expect text "sub-meta-sC" == "3.5K tok · 1m 5s"
+  expect text "sub-state-sG" == "one-shot · completed"
+  expect text "env-cwd" == "/work"
+  expect tree has "env-open"
+  expect tree has "env-reveal"
+  tap "jobs-open"
+  tap "job-open-bash-1"
+  clock data
+  clock data
+  expect text "job-text-bash-1" == "hello from the job"
+  back
+  back
+  clock data
+  expect tree has "session-sA"
+  tap "settings"
+  type "token" ""
+  back
+
+test "a continuable subagent shows its parent and keeps the composer; a one-shot is read-only" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Writer","origin":"subagent","subagentMode":"continuable","parentId":"sP","parentTitle":"Parent session","agentLabel":"Writer","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":1000},"bridge":{"api":11,"open":false}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:11:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  expect text "breadcrumb-parent" == "Parent session"
+  expect text "breadcrumb-agent" == "Writer"
+  expect tree has "draft"
+  expect tree missing "readonly-note"
+  back
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r2","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":2,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Explore","origin":"subagent","subagentMode":"one-shot","parentId":"sP","parentTitle":"Parent session","agentLabel":"Explore","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":false}}
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  expect tree has "readonly-note"
+  expect tree missing "draft"
+  back
+  tap "settings"
+  type "token" ""
+  back
+
+test "a scheduled task opens an editor with plain fields, no JSON" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":false}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:11:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
+  answer fetch "http://bridge.test/v1/schedules" with 200 {"zone":"Asia/Shanghai","tomorrow":"2030-01-02","items":[{"id":"s1","title":"Digest","prompt":"summarize","status":"active","state":"Enabled","kind":"weekly","timing":"Weekly on Mon, Wed at 18:30 (UTC)","next":"Jan 2, 2030, 6:30 PM","running":false,"updatedAt":"u1","mode":"weekly","date":"","time":"18:30","zone":"UTC","interval":1,"unit":"minutes","days":"1,3"}]}
+  answer fetch "http://bridge.test/v1/schedules/s1/edit" with 200 {"ok":true}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  tap "chat-menu"
+  tap "schedules-open"
+  clock data
+  clock data
+  expect text "sched-title-s1" == "Digest"
+  expect text "sched-state-s1" == "Enabled"
+  tap "sched-s1"
+  clock data
+  expect text "task-title" == "Edit task"
+  expect tree has "task-days"
+  expect tree has "task-time"
+  expect tree has "task-zone"
+  tap "task-day-5"
+  tap "task-save"
+  clock data
+  clock data
+  expect tree missing "task-error"
+  tap "task-mode-every"
+  expect tree has "task-interval"
+  expect tree missing "task-days"
+  type "task-interval" "0"
+  expect state intervalOk == false
+  type "task-interval" "15"
+  expect state intervalOk == true
+  tap "task-toggle"
+  clock data
+  back
+  back
+  clock data
+  expect tree has "session-sA"
+  tap "settings"
+  type "token" ""
+  back
+
+test "a recorded rating retracts on a tap; a refused one says so in the official words" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"9:8:11:en","hasMore":false,"seq":9,"turns":[1],"ids":["u1","a5"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"hi","blocks":[]},{"id":"a5","role":"assistant","seq":5,"turn":1,"msgId":"m1","text":"done","title":"Completed","state":"done","blocks":[{"id":"b0","kind":"md","text":"done","nodes":[{"id":"n0","t":"p","v":"done"}]}]}]}
+  answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 200 {"items":[{"messageId":"m1","rating":"negative","note":"","category":"","version":"v1"}]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  tap "down-5"
+  clock data
+  expect tree missing "feedback-dialog"
+  tap "up-5"
+  expect tree has "feedback-dialog"
+  answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 409 {"error":"version-conflict"}
+  tap "feedback-submit"
+  clock data
+  clock data
+  expect text "feedback-error" == "This feedback changed elsewhere; the latest state is shown"
+  expect tree has "feedback-dialog"
+  tap "feedback-close"
+  expect tree missing "feedback-dialog"
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back
+
+test "a presented file opens the viewer, which can open it on the Mac" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"9:8:11:en","hasMore":false,"seq":9,"turns":[1],"ids":["u1","a5"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"hi","blocks":[]},{"id":"a5","role":"assistant","seq":5,"turn":1,"msgId":"m1","text":"done","title":"Completed","state":"done","deliverables":[{"path":"docs/report.md","text":"the report"}],"blocks":[{"id":"b0","kind":"md","text":"done","nodes":[{"id":"n0","t":"p","v":"done"}]}]}]}
+  answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 200 {"items":[]}
+  answer fetch "http://bridge.test/v1/sessions/sA/file" with 200 {"ok":true,"kind":"text","media":"text/plain","name":"report.md","bytes":5,"text":"hello"}
+  answer fetch "http://bridge.test/v1/sessions/sA/open" with 409 {"error":"Could not open it on the Mac. Try again."}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  tap "dl-open-dl0-show"
+  clock data
+  expect text "file-name" == "report.md"
+  expect tree has "viewer-open-mac"
+  expect tree has "viewer-reveal"
+  tap "viewer-open-mac"
+  clock data
+  clock data
+  expect text "viewer-mac-error" == "Could not open it on the Mac. Try again."
+  back
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back
+
+// Diagnostic (turn 12): system Back from every screen the person leaves by it — chat, a modal
+// sheet over chat, settings — must reach the list, never leave the app with the stack un-popped.
+test "system Back from chat, a sheet over it and settings reaches the session list" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Stub chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1m"}],"session":{"id":"sA","title":"Stub chat","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":33554432}}
+  answer fetch "http://bridge.test/v1/sessions/sA/models" with 200 {"current":{"provider":"p1","model":"m"},"groups":[{"id":"p1","name":"P1","models":[{"id":"m","name":"Model M","efforts":[]},{"id":"m2","name":"Model M2","efforts":[{"id":"low","name":"Low"},{"id":"high","name":"High"}]}]}]}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:12:en","hasMore":false,"seq":6,"turns":[1,2,3],"ids":["u1","a2","u3","a4","u5","a6"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"first request","blocks":[]},{"id":"a2","role":"assistant","seq":2,"turn":1,"msgId":"m1","text":"first reply","state":"done","blocks":[{"id":"b2","kind":"md","text":"first reply","nodes":[{"id":"n2","t":"p","v":"first reply body."}]}]},{"id":"u3","role":"user","seq":3,"turn":2,"text":"second request","blocks":[]},{"id":"a4","role":"assistant","seq":4,"turn":2,"msgId":"m2","text":"second reply","state":"done","blocks":[{"id":"b4","kind":"md","text":"second reply body","nodes":[{"id":"n4","t":"p","v":"second reply body."}]}]},{"id":"u5","role":"user","seq":5,"turn":3,"text":"third request","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":3,"msgId":"m3","text":"third reply","state":"done","blocks":[{"id":"b6","kind":"md","text":"third reply body","nodes":[{"id":"n6","t":"p","v":"third reply body."}]}]}]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  // Chat: Back pops to the list.
+  tap "session-sA"
+  clock data
+  clock data
+  expect tree has "turn-rail"
+  back
+  clock data
+  expect tree has "search"
+  // The sheet over chat: Back closes the sheet, not the chat.
+  tap "session-sA"
+  clock data
+  clock data
+  tap "composer-model"
+  clock settle
+  clock data
+  clock settle
+  expect state selected == "sA"
+  expect tree has "models-cancel"
+  back
+  clock settle
+  clock data
+  clock settle
+  expect tree missing "models-cancel"
+  expect tree has "turn-rail"
+  back
+  clock data
+  expect tree has "search"
+  // Settings: Back pops to the list.
+  tap "settings"
+  clock data
+  expect tree has "server"
+  back
+  clock data
+  expect tree has "search"
+  tap "settings"
+  type "token" ""
+  back

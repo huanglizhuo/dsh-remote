@@ -4,84 +4,115 @@
 // What app.ts writes, in brief (the declarations follow): `sources: TypeScriptSources` has one
 // function per source, given its arguments as an array (then store, storage, native) and
 // answering its shape, or a Promise of it.
-//   answerQuestion: (args: [string, string, string, string, string]) => Reply
 //   answerQuestions: (args: [string, string, string, string]) => Reply
 //   cancelRun: (args: [string, string, string]) => Reply
-//   createSchedule: (args: [string, string, string, string, string]) => Reply
+//   clearRating: (args: [string, string, string, string]) => Reply
+//   continueGeneration: (args: [string, string, string, number, string]) => Reply
 //   createSession: (args: [string, string, string]) => Created
 //   deleteSchedule: (args: [string, string, string, string]) => Reply
+//   dismissQuestion: (args: [string, string, string]) => Reply
 //   dropQueued: (args: [string, string, string, string]) => Reply
-//   editSchedule: (args: [string, string, string, string]) => Reply
 //   forkFrom: (args: [string, string, string, number]) => Created
 //   forkSession: (args: [string, string, string]) => Created
+//   holdQuestion: (args: [string, string, string, string]) => Reply
 //   killJob: (args: [string, string, string, string]) => Reply
-//   loadCall: (args: [string, string, string, string]) => CallDetail
+//   loadCall: (args: [string, string, string, string, string]) => CallDetail
+//   loadChanges: (args: [string, string, string, number, number, number, string, string]) => ChangesDoc
 //   loadCommands: (args: [string, string, string]) => CommandsReply
 //   loadDevices: (args: [string, string]) => DevicesReply
+//   loadFeedback: (args: [string, string, string]) => FeedbackReply
 //   loadFile: (args: [string, string, string, string]) => FileDoc
-//   loadLive: (args: [string, string, string, string, boolean]) => Snapshot
+//   loadJobOutput: (args: [string, string, string, string, number]) => JobOutput
+//   loadLive: (args: [string, string, string, string, boolean, string]) => Snapshot
 //   loadModels: (args: [string, string, string]) => ModelsReply
-//   loadRows: (args: [string, string, string, number, string]) => Rows
-//   loadSchedules: (args: [string, string]) => SchedulesReply
+//   loadRefs: (args: [string, string, string, string, boolean, string]) => RefsReply
+//   loadRows: (args: [string, string, string, number, string, string]) => Rows
+//   loadSchedules: (args: [string, string, string]) => SchedulesReply
+//   openOnMac: (args: [string, string, string, string, string, string]) => Reply
 //   pairDevice: (args: [string, string]) => PairReply
 //   pairFromLink: (args: [string]) => PairLink
 //   queueItem: (args: [string, string, string, string, string, string]) => Reply
-//   rateMessage: (args: [string, string, string, string, string, string]) => Reply
+//   rateMessage: (args: [string, string, string, string, string, string, string]) => Reply
 //   renameSession: (args: [string, string, string, string]) => Created
-//   respondApproval: (args: [string, string, string, boolean, boolean]) => Reply
+//   respondApproval: (args: [string, string, string, string]) => Reply
+//   revealQuestion: (args: [string, string, string, string]) => Reply
 //   revokeDevice: (args: [string, string, string]) => Reply
 //   runSchedule: (args: [string, string, string]) => Reply
 //   runSessionCommand: (args: [string, string, string, string, string]) => Reply
-//   sendPrompt: (args: [string, string, string, string, boolean, string]) => Reply
-//   setGoalAction: (args: [string, string, string, string]) => Reply
+//   saveSchedule: (args: [string, string, string, string, string, string, string, string, string, string, string, string, string]) => Reply
+//   sendPrompt: (args: [string, string, string, string, boolean, string, string, string, string]) => Reply
+//   setGoalAction: (args: [string, string, string, string, string]) => Reply
 //   setModel: (args: [string, string, string, string, string, string]) => Reply
 //   setPermission: (args: [string, string, string, string]) => Reply
 //   setSessionFlag: (args: [string, string, string, string, boolean]) => Reply
-//   skipQuestion: (args: [string, string, string]) => Reply
-//   uploadPhoto: (args: [string, string, string, string]) => UploadReply
-// The shapes. None is exported: name one by its source, `type Reply = Result<'answerQuestion'>`.
+//   toggleSchedule: (args: [string, string, string, string, boolean]) => Reply
+//   uploadFiles: (args: [string, string, string, string, string]) => UploadReply
+// The shapes. None is exported: name one by its source, `type Reply = Result<'answerQuestions'>`.
 //   OptionRow = { value: string; name: string; description: string }
-//   SessionRow = { id: string; pinned: boolean; title: string; running: boolean; cwd: string; updatedAt: number; group: string; first: boolean; when: string; archived: boolean }
+//   SessionRow = { id: string; pinned: boolean; title: string; running: boolean; cwd: string; updatedAt: number; group: string; first: boolean; when: string; archived: boolean; attention: string; unread: string; subs: number }
 //   MdItem = { id: string; v: string; sign: string; mark: string; d: number; alt: string; w: number; h: number; dw: number; dh: number }
-//   MdNode = { id: string; t: string; v: string; lvl: number; lang: string; alt: string; w: number; h: number; head: string; items: MdItem[]; rows: MdItem[] }
+//   CodeRun = { id: string; v: string; mark: string }
+//   MdCell = { id: string; v: string; a: string }
+//   MdRow = { id: string; cells: MdCell[] }
+//   MdNode = { id: string; t: string; v: string; lvl: number; lang: string; alt: string; w: number; h: number; items: MdItem[]; runs: CodeRun[]; heads: MdCell[]; grid: MdRow[] }
 //   DiffLine = { id: string; sign: string; text: string }
 //   DiffFile = { id: string; path: string; added: number; removed: number; lines: DiffLine[] }
-//   TodoItem = { id: string; text: string; state: string; change: string }
+//   TodoItem = { id: string; text: string; state: string; change: string; label: string; prev: string }
 //   ChoiceItem = { id: string; text: string; description: string }
 //   ImageRow = { id: string; att: string; media: string; w: number; h: number; text: string }
 //   FileRow = { id: string; path: string; text: string }
-//   BlockRow = { id: string; kind: string; text: string; detail: string; status: string; result: string; nodes: MdNode[]; callId: string; child: string; icon: string; summary: string; args: string; lazy: boolean; badge: string; todoSummary: string; diffs: DiffFile[]; diffHidden: number; todos: TodoItem[]; files: FileRow[]; question: string; options: ChoiceItem[]; att: string; media: string; w: number; h: number; images: ImageRow[] }
-//   UsageTokens = { in: number; out: number; cacheRead: number; reasoning: number | null }
-//   MessageRow = { id: string; role: string; seq: number; msgId: string; text: string; plain: string; usage: string; tools: number; running: number; thought: boolean; failed: boolean; thoughtPreview: string; changedCount: number; day: string; deliverables: FileRow[]; refs: FileRow[]; usageTokens: UsageTokens | null; interrupted: boolean; took: number; folded: number; shadow: number; blocks: BlockRow[] }
+//   AskItem = { id: string; header: string; question: string; answers: string[]; skipped: boolean }
+//   AskCard = { state: string; answered: number; total: number; answerable: boolean; callId: string; items: AskItem[] }
+//   ToolLine = { id: string; n: number; sign: string; text: string; runs: CodeRun[] }
+//   ToolField = { id: string; label: string; value: string }
+//   ToolItem = { id: string; title: string; subtitle: string; badge: string; tone: string; text: string; link: string; group: string; md: boolean; fields: ToolField[]; lines: ToolLine[] }
+//   ToolPart = { id: string; kind: string; label: string; badge: string; tone: string; text: string; link: string; md: boolean; fold: number; lines: ToolLine[]; items: ToolItem[] }
+//   ToolView = { kind: string; head: string; tone: string; more: number; parts: ToolPart[] }
+//   BlockRow = { id: string; kind: string; text: string; detail: string; status: string; result: string; nodes: MdNode[]; callId: string; child: string; icon: string; summary: string; args: string; lazy: boolean; badge: string; todoSummary: string; diffs: DiffFile[]; diffHidden: number; todos: TodoItem[]; files: FileRow[]; question: string; options: ChoiceItem[]; att: string; media: string; w: number; h: number; images: ImageRow[]; ask: AskCard | null; grp: string; answer: boolean; title: string; suffix: string; added: number; removed: number; view: ToolView }
+//   UsageRow = { id: string; label: string; value: string }
+//   ChangedFile = { id: string; path: string; name: string; added: number; removed: number; i: number; note: string }
+//   MessageRow = { id: string; role: string; seq: number; msgId: string; turn: number; text: string; plain: string; usage: string; usageRows: UsageRow[]; title: string; summary: string; icon: string; state: string; failed: boolean; active: boolean; steered: boolean; foldAll: boolean; foldFinal: boolean; changedCount: number; changesSeq: number; changedAdded: number; changedRemoved: number; changedFiles: ChangedFile[]; day: string; deliverables: FileRow[]; refs: FileRow[]; interrupted: boolean; blocks: BlockRow[]; fold: boolean; grouped: boolean; liveGroup: string }
 //   ModelRow = { id: string; name: string; provider: string; current: boolean; efforts: string[] }
 //   ModelsReply = { currentModel: string; currentProvider: string; currentEffort: string; models: ModelRow[] }
 //   DeviceRow = { id: string; name: string; when: string; mine: boolean }
 //   DevicesReply = { devices: DeviceRow[] }
 //   CommandRow = { name: string; description: string; hint: string }
-//   CommandsReply = { commands: CommandRow[] }
-//   ApprovalRow = { id: string; toolName: string; reason: string; summary: string; args: string; command: string; plan: string; expiresIn: number }
+//   SkillRow = { name: string; description: string; userOnly: boolean }
+//   CommandsReply = { commands: CommandRow[]; skills: SkillRow[] }
+//   RefRow = { id: string; kind: string; name: string; detail: string; text: string; done: string; wire: string; section: string; first: boolean }
+//   RefsReply = { items: RefRow[] }
+//   ApprovalRow = { id: string; toolName: string; reason: string; summary: string; args: string; command: string; subject: string; detail: string; approveLabel: string; alwaysLabel: string }
 //   WalletRow = { id: string; currency: string; text: string }
 //   BalanceView = { signedOut: boolean; failed: boolean; wallets: WalletRow[]; bonus: WalletRow[] }
-//   ActivityRow = { label: string; detail: string }
-//   StatsRow = { turns: number; steps: number; inTok: number; outTok: number; cacheRead: number }
-//   SubagentRow = { id: string; label: string; sessionId: string }
-//   JobRow = { id: string; kind: string; label: string; status: string; progress: string; detail: string; when: string }
+//   ActivityRow = { kind: string; label: string; detail: string }
+//   StatsRow = { turns: number; steps: number; inTok: number; outTok: number; cacheRead: number; llmMs: number; toolMs: number; ttftMs: number; ttftSteps: number; decodeMs: number; decodeTokens: number }
+//   PrefsRow = { transcriptView: string; collapseTiming: string; foldedReplies: string; performanceUsage: string; busyEnter: string }
+//   SubagentRow = { id: string; label: string; sessionId: string; sub: string; mode: string; modeCode: string; activity: string; state: string; meta: string; depth: number }
+//   JobRow = { id: string; kind: string; label: string; status: string; state: string; progress: string; detail: string; when: string }
 //   TodoRow = { id: string; text: string; state: string }
-//   TaskRow = { id: string; title: string; prompt: string; status: string; kind: string; timing: string; nextAt: string; updatedAt: string; targetSessionId: string }
+//   TaskRow = { id: string; tid: string; title: string; prompt: string; status: string; state: string; kind: string; timing: string; next: string; running: boolean; overdue: boolean; nextAt: string; updatedAt: string; targetSessionId: string; mode: string; date: string; time: string; zone: string; interval: number; unit: string; days: string }
 //   TeamRow = { id: string; taskId: string; subject: string; status: string; owner: string }
 //   FileDoc = { ok: boolean; kind: string; media: string; name: string; bytes: number; text: string; url: string }
-//   SchedulesReply = { items: TaskRow[] }
-//   QueueRow = { id: string; text: string }
-//   QuestionItem = { id: string; header: string; question: string; detail: string; multi: boolean; options: ChoiceItem[] }
-//   QuestionRow = { id: string; callId: string; hint: string; ask: string; detail: string; qid: string; multi: boolean; kind: string; options: ChoiceItem[]; items: QuestionItem[]; expiresIn: number }
+//   ChangesDoc = { ok: boolean; kind: string; name: string; added: number; removed: number; created: boolean; deleted: boolean; coarse: boolean; cut: boolean; lines: ToolLine[] }
+//   FeedbackItem = { id: string; messageId: string; rating: string; note: string; category: string; version: string }
+//   FeedbackReply = { items: FeedbackItem[] }
+//   JobOutput = { ok: boolean; text: string; more: boolean; status: string }
+//   SchedulesReply = { items: TaskRow[]; zone: string; tomorrow: string }
+//   QueueRow = { id: string; text: string; images: ImageRow[]; files: FileRow[]; editable: boolean }
+//   AskOption = { id: string; value: string; text: string; description: string; recommended: boolean }
+//   QuestionItem = { id: string; header: string; question: string; detail: string; multi: boolean; options: AskOption[] }
+//   PlanReview = { title: string; description: string; nodes: MdNode[]; approve: string; chars: number }
+//   QuestionRow = { id: string; callId: string; kind: string; state: string; dismissal: string; countdown: number; running: boolean; held: boolean; items: QuestionItem[]; plan: PlanReview | null }
 //   PlanStep = { id: string; text: string; state: string }
 //   PlanCard = { title: string; steps: PlanStep[] }
-//   ContextRow = { used: number; total: number }
-//   Snapshot = { listRev: string; rowsRev: string; hasMore: boolean; plan: PlanCard; goal: string; goalId: string; pinned: boolean; archived: boolean; goalPhase: string; sessions: SessionRow[]; sessionTitle: string; sessionModel: string; sessionPermission: string; permissionOptions: OptionRow[]; running: boolean; inherited: boolean; runLabel: string; runActivity: ActivityRow | null; stats: StatsRow; messages: MessageRow[]; approvals: ApprovalRow[]; queue: QueueRow[]; todos: TodoRow[]; jobs: JobRow[]; subagents: SubagentRow[]; team: TeamRow[]; question: QuestionRow | null; streamText: string; streamReasoning: string; streamTools: BlockRow[]; balance: BalanceView | null; context: ContextRow | null; quota: string }
-//   Rows = { rev: string; hasMore: boolean; rows: MessageRow[] }
-//   CallDetail = { callId: string; name: string; args: string; result: string }
+//   LimitsRow = { images: number; files: boolean; fileBytes: number }
+//   ContextRow = { used: number; total: number; system: number; tools: number; messages: number }
+//   Snapshot = { listRev: string; rowsRev: string; hasMore: boolean; plan: PlanCard; goal: string; goalId: string; pinned: boolean; archived: boolean; goalPhase: string; goalActivation: string; goalRounds: number; goalMax: number; goalReason: string; continueSeq: number; planMode: string; limits: LimitsRow; origin: string; subagentMode: string; parentId: string; parentTitle: string; agentLabel: string; subagentProgress: string; sessionCwd: string; bridgeApi: number; bridgeOpen: boolean; sessions: SessionRow[]; sessionTitle: string; sessionModel: string; sessionPermission: string; permissionOptions: OptionRow[]; running: boolean; inherited: boolean; runLabel: string; runActivity: ActivityRow | null; stats: StatsRow; messages: MessageRow[]; approvals: ApprovalRow[]; queue: QueueRow[]; todos: TodoRow[]; jobs: JobRow[]; subagents: SubagentRow[]; team: TeamRow[]; question: QuestionRow | null; streamBlocks: BlockRow[]; prefs: PrefsRow; turns: number[]; balance: BalanceView | null; context: ContextRow | null; quota: string; quotaId: string }
+//   Rows = { rev: string; hasMore: boolean; turns: number[]; rows: MessageRow[] }
+//   CallDetail = { callId: string; name: string; title: string; args: string; result: string; view: ToolView }
 //   Reply = { ok: boolean; error: string }
-//   UploadReply = { ok: boolean; id: string; name: string; error: string }
+//   AttRow = { id: string; name: string; kind: string; sid: string; bytes: number }
+//   UploadReply = { ok: boolean; error: string; items: AttRow[] }
 //   PairReply = { ok: boolean; token: string; error: string }
 //   Created = { id: string; error: string }
 //   PairLink = { ok: boolean; server: string; token: string; alt: string; error: string }
@@ -329,273 +360,326 @@ type T0 = string;
 type T1 = { "value": T0; "name": T0; "description": T0; };
 type T2 = boolean;
 type T3 = number;
-type T4 = { "id": T0; "pinned": T2; "title": T0; "running": T2; "cwd": T0; "updatedAt": T3; "group": T0; "first": T2; "when": T0; "archived": T2; };
+type T4 = { "id": T0; "pinned": T2; "title": T0; "running": T2; "cwd": T0; "updatedAt": T3; "group": T0; "first": T2; "when": T0; "archived": T2; "attention": T0; "unread": T0; "subs": T3; };
 type T5 = { "id": T0; "v": T0; "sign": T0; "mark": T0; "d": T3; "alt": T0; "w": T3; "h": T3; "dw": T3; "dh": T3; };
-type T6 = T5[];
-type T7 = { "id": T0; "t": T0; "v": T0; "lvl": T3; "lang": T0; "alt": T0; "w": T3; "h": T3; "head": T0; "items": T6; "rows": T6; };
-type T8 = { "id": T0; "sign": T0; "text": T0; };
-type T9 = T8[];
-type T10 = { "id": T0; "path": T0; "added": T3; "removed": T3; "lines": T9; };
-type T11 = { "id": T0; "text": T0; "state": T0; "change": T0; };
-type T12 = { "id": T0; "text": T0; "description": T0; };
-type T13 = { "id": T0; "att": T0; "media": T0; "w": T3; "h": T3; "text": T0; };
-type T14 = T7[];
-type T15 = T10[];
-type T16 = T11[];
-type T17 = { "id": T0; "path": T0; "text": T0; };
-type T18 = T17[];
-type T19 = T12[];
+type T6 = { "id": T0; "v": T0; "mark": T0; };
+type T7 = { "id": T0; "v": T0; "a": T0; };
+type T8 = T7[];
+type T9 = { "id": T0; "cells": T8; };
+type T10 = T5[];
+type T11 = T6[];
+type T12 = T9[];
+type T13 = { "id": T0; "t": T0; "v": T0; "lvl": T3; "lang": T0; "alt": T0; "w": T3; "h": T3; "items": T10; "runs": T11; "heads": T8; "grid": T12; };
+type T14 = { "id": T0; "sign": T0; "text": T0; };
+type T15 = T14[];
+type T16 = { "id": T0; "path": T0; "added": T3; "removed": T3; "lines": T15; };
+type T17 = { "id": T0; "text": T0; "state": T0; "change": T0; "label": T0; "prev": T0; };
+type T18 = { "id": T0; "text": T0; "description": T0; };
+type T19 = { "id": T0; "att": T0; "media": T0; "w": T3; "h": T3; "text": T0; };
 type T20 = T13[];
-type T21 = { "id": T0; "kind": T0; "text": T0; "detail": T0; "status": T0; "result": T0; "nodes": T14; "callId": T0; "child": T0; "icon": T0; "summary": T0; "args": T0; "lazy": T2; "badge": T0; "todoSummary": T0; "diffs": T15; "diffHidden": T3; "todos": T16; "files": T18; "question": T0; "options": T19; "att": T0; "media": T0; "w": T3; "h": T3; "images": T20; };
-type T22 = T3 | null;
-type T23 = { "in": T3; "out": T3; "cacheRead": T3; "reasoning": T22; };
-type T24 = T23 | null;
-type T25 = T21[];
-type T26 = { "id": T0; "role": T0; "seq": T3; "msgId": T0; "text": T0; "plain": T0; "usage": T0; "tools": T3; "running": T3; "thought": T2; "failed": T2; "thoughtPreview": T0; "changedCount": T3; "day": T0; "deliverables": T18; "refs": T18; "usageTokens": T24; "interrupted": T2; "took": T3; "folded": T3; "shadow": T3; "blocks": T25; };
+type T21 = T16[];
+type T22 = T17[];
+type T23 = { "id": T0; "path": T0; "text": T0; };
+type T24 = T23[];
+type T25 = T18[];
+type T26 = T19[];
 type T27 = T0[];
-type T28 = { "id": T0; "name": T0; "provider": T0; "current": T2; "efforts": T27; };
+type T28 = { "id": T0; "header": T0; "question": T0; "answers": T27; "skipped": T2; };
 type T29 = T28[];
-type T30 = { "currentModel": T0; "currentProvider": T0; "currentEffort": T0; "models": T29; };
-type T31 = { "id": T0; "name": T0; "when": T0; "mine": T2; };
-type T32 = T31[];
-type T33 = { "devices": T32; };
-type T34 = { "name": T0; "description": T0; "hint": T0; };
+type T30 = { "state": T0; "answered": T3; "total": T3; "answerable": T2; "callId": T0; "items": T29; };
+type T31 = T30 | null;
+type T32 = { "id": T0; "n": T3; "sign": T0; "text": T0; "runs": T11; };
+type T33 = T32[];
+type T34 = { "id": T0; "label": T0; "value": T0; };
 type T35 = T34[];
-type T36 = { "commands": T35; };
-type T37 = { "id": T0; "toolName": T0; "reason": T0; "summary": T0; "args": T0; "command": T0; "plan": T0; "expiresIn": T3; };
-type T38 = { "id": T0; "currency": T0; "text": T0; };
+type T36 = { "id": T0; "title": T0; "subtitle": T0; "badge": T0; "tone": T0; "text": T0; "link": T0; "group": T0; "md": T2; "fields": T35; "lines": T33; };
+type T37 = T36[];
+type T38 = { "id": T0; "kind": T0; "label": T0; "badge": T0; "tone": T0; "text": T0; "link": T0; "md": T2; "fold": T3; "lines": T33; "items": T37; };
 type T39 = T38[];
-type T40 = { "signedOut": T2; "failed": T2; "wallets": T39; "bonus": T39; };
-type T41 = { "label": T0; "detail": T0; };
-type T42 = { "turns": T3; "steps": T3; "inTok": T3; "outTok": T3; "cacheRead": T3; };
-type T43 = { "id": T0; "label": T0; "sessionId": T0; };
-type T44 = { "id": T0; "kind": T0; "label": T0; "status": T0; "progress": T0; "detail": T0; "when": T0; };
-type T45 = { "id": T0; "text": T0; "state": T0; };
-type T46 = { "id": T0; "title": T0; "prompt": T0; "status": T0; "kind": T0; "timing": T0; "nextAt": T0; "updatedAt": T0; "targetSessionId": T0; };
-type T47 = { "id": T0; "taskId": T0; "subject": T0; "status": T0; "owner": T0; };
-type T48 = { "ok": T2; "kind": T0; "media": T0; "name": T0; "bytes": T3; "text": T0; "url": T0; };
-type T49 = T46[];
-type T50 = { "items": T49; };
-type T51 = { "id": T0; "text": T0; };
-type T52 = { "id": T0; "header": T0; "question": T0; "detail": T0; "multi": T2; "options": T19; };
-type T53 = T52[];
-type T54 = { "id": T0; "callId": T0; "hint": T0; "ask": T0; "detail": T0; "qid": T0; "multi": T2; "kind": T0; "options": T19; "items": T53; "expiresIn": T3; };
-type T55 = { "id": T0; "text": T0; "state": T0; };
-type T56 = T55[];
-type T57 = { "title": T0; "steps": T56; };
-type T58 = T4[];
-type T59 = T1[];
-type T60 = T41 | null;
-type T61 = T26[];
-type T62 = T37[];
-type T63 = T51[];
-type T64 = T45[];
-type T65 = T44[];
-type T66 = T43[];
-type T67 = T47[];
-type T68 = T54 | null;
-type T69 = T40 | null;
-type T70 = { "used": T3; "total": T3; };
-type T71 = T70 | null;
-type T72 = { "listRev": T0; "rowsRev": T0; "hasMore": T2; "plan": T57; "goal": T0; "goalId": T0; "pinned": T2; "archived": T2; "goalPhase": T0; "sessions": T58; "sessionTitle": T0; "sessionModel": T0; "sessionPermission": T0; "permissionOptions": T59; "running": T2; "inherited": T2; "runLabel": T0; "runActivity": T60; "stats": T42; "messages": T61; "approvals": T62; "queue": T63; "todos": T64; "jobs": T65; "subagents": T66; "team": T67; "question": T68; "streamText": T0; "streamReasoning": T0; "streamTools": T25; "balance": T69; "context": T71; "quota": T0; };
-type T73 = { "rev": T0; "hasMore": T2; "rows": T61; };
-type T74 = { "callId": T0; "name": T0; "args": T0; "result": T0; };
-type T75 = { "ok": T2; "error": T0; };
-type T76 = { "ok": T2; "id": T0; "name": T0; "error": T0; };
-type T77 = { "ok": T2; "token": T0; "error": T0; };
-type T78 = { "id": T0; "error": T0; };
-type T79 = { "ok": T2; "server": T0; "token": T0; "alt": T0; "error": T0; };
-type T80 = { "prefersReducedMotion": T2; };
-type T81 = { "permanentlyDenied": T2; "shouldShowRationale": T2; };
-type T82 = T81 | null;
-type T83 = "notDetermined" | "restricted" | "denied" | "authorized";
-type T84 = { "authorizationStatus": T83; };
-type T85 = T84 | null;
-type T86 = "granted" | "prompt" | "denied" | "unknown";
-type T87 = { "android": T82; "apple": T85; "available": T2; "state": T86; };
-type T88 = { "max": T3; "min": T3; "step": T22; };
-type T89 = T0 | null;
-type T90 = { "refused": T89; };
-type T91 = "audioinput" | "videoinput" | "audiooutput";
-type T92 = { "deviceId": T0; "facingMode": T89; "groupId": T0; "kind": T91; "label": T0; };
-type T93 = T92[];
-type T94 = { "devices": T93; };
-type T95 = { "cameraId": T89; "isClientSilenced": T2; "lensFacing": T89; };
-type T96 = T95 | null;
-type T97 = { "deviceType": T89; "portName": T89; "portType": T89; "position": T89; };
-type T98 = T97 | null;
-type T99 = T88 | null;
-type T100 = T27 | null;
-type T101 = T2 | null;
-type T102 = { "aspectRatio": T99; "facingMode": T100; "frameRate": T99; "height": T99; "torch": T101; "width": T99; "zoom": T99; };
-type T103 = T102 | null;
-type T104 = "audio" | "video";
-type T105 = "idle" | "interrupted" | "background" | "silenced" | "in-use" | "multitasking" | "system-pressure";
-type T106 = T105 | null;
-type T107 = "live" | "ended";
-type T108 = { "aspectRatio": T22; "autoGainControl": T101; "channelCount": T22; "deviceId": T89; "echoCancellation": T101; "facingMode": T89; "frameRate": T22; "groupId": T89; "height": T22; "latency": T22; "noiseSuppression": T101; "resizeMode": T89; "sampleRate": T22; "sampleSize": T22; "torch": T101; "width": T22; "zoom": T22; };
-type T109 = { "android": T96; "apple": T98; "capabilities": T103; "enabled": T2; "id": T0; "kind": T104; "label": T0; "muteReason": T106; "muted": T2; "readyState": T107; "settings": T108; };
-type T110 = T109[];
-type T111 = { "active": T2; "id": T0; "tracks": T110; };
-type T112 = { "aspectRatio": T22; "autoGainControl": T101; "channelCount": T22; "deviceId": T89; "echoCancellation": T101; "facingMode": T89; "frameRate": T22; "groupId": T89; "height": T22; "latency": T22; "noiseSuppression": T101; "resizeMode": T89; "sampleRate": T22; "sampleSize": T22; "torch": T101; "width": T22; "zoom": T22; };
-type T113 = { "permanentlyDenied": T2; "shouldShowRationale": T2; };
-type T114 = T113 | null;
-type T115 = "undetermined" | "denied" | "granted" | "notDetermined" | "restricted" | "authorized";
-type T116 = { "recordPermission": T115; };
-type T117 = T116 | null;
-type T118 = "granted" | "prompt" | "denied" | "unknown";
-type T119 = { "android": T114; "apple": T117; "available": T2; "state": T118; };
-type T120 = { "x": T3; "y": T3; };
-type T121 = { "bundled": T2; };
+type T40 = { "kind": T0; "head": T0; "tone": T0; "more": T3; "parts": T39; };
+type T41 = { "id": T0; "kind": T0; "text": T0; "detail": T0; "status": T0; "result": T0; "nodes": T20; "callId": T0; "child": T0; "icon": T0; "summary": T0; "args": T0; "lazy": T2; "badge": T0; "todoSummary": T0; "diffs": T21; "diffHidden": T3; "todos": T22; "files": T24; "question": T0; "options": T25; "att": T0; "media": T0; "w": T3; "h": T3; "images": T26; "ask": T31; "grp": T0; "answer": T2; "title": T0; "suffix": T0; "added": T3; "removed": T3; "view": T40; };
+type T42 = { "id": T0; "label": T0; "value": T0; };
+type T43 = T42[];
+type T44 = { "id": T0; "path": T0; "name": T0; "added": T3; "removed": T3; "i": T3; "note": T0; };
+type T45 = T44[];
+type T46 = T41[];
+type T47 = { "id": T0; "role": T0; "seq": T3; "msgId": T0; "turn": T3; "text": T0; "plain": T0; "usage": T0; "usageRows": T43; "title": T0; "summary": T0; "icon": T0; "state": T0; "failed": T2; "active": T2; "steered": T2; "foldAll": T2; "foldFinal": T2; "changedCount": T3; "changesSeq": T3; "changedAdded": T3; "changedRemoved": T3; "changedFiles": T45; "day": T0; "deliverables": T24; "refs": T24; "interrupted": T2; "blocks": T46; "fold": T2; "grouped": T2; "liveGroup": T0; };
+type T48 = { "id": T0; "name": T0; "provider": T0; "current": T2; "efforts": T27; };
+type T49 = T48[];
+type T50 = { "currentModel": T0; "currentProvider": T0; "currentEffort": T0; "models": T49; };
+type T51 = { "id": T0; "name": T0; "when": T0; "mine": T2; };
+type T52 = T51[];
+type T53 = { "devices": T52; };
+type T54 = { "name": T0; "description": T0; "hint": T0; };
+type T55 = T54[];
+type T56 = { "name": T0; "description": T0; "userOnly": T2; };
+type T57 = T56[];
+type T58 = { "commands": T55; "skills": T57; };
+type T59 = { "name": T0; "label": T0; "description": T0; "hint": T0; "kind": T0; "section": T0; "rank": T3; };
+type T60 = { "id": T0; "kind": T0; "name": T0; "detail": T0; "text": T0; "done": T0; "wire": T0; "section": T0; "first": T2; };
+type T61 = T60[];
+type T62 = { "items": T61; };
+type T63 = { "id": T0; "toolName": T0; "reason": T0; "summary": T0; "args": T0; "command": T0; "subject": T0; "detail": T0; "approveLabel": T0; "alwaysLabel": T0; };
+type T64 = { "id": T0; "currency": T0; "text": T0; };
+type T65 = T64[];
+type T66 = { "signedOut": T2; "failed": T2; "wallets": T65; "bonus": T65; };
+type T67 = { "kind": T0; "label": T0; "detail": T0; };
+type T68 = { "turns": T3; "steps": T3; "inTok": T3; "outTok": T3; "cacheRead": T3; "llmMs": T3; "toolMs": T3; "ttftMs": T3; "ttftSteps": T3; "decodeMs": T3; "decodeTokens": T3; };
+type T69 = { "transcriptView": T0; "collapseTiming": T0; "foldedReplies": T0; "performanceUsage": T0; "busyEnter": T0; };
+type T70 = { "id": T0; "label": T0; "sessionId": T0; "sub": T0; "mode": T0; "modeCode": T0; "activity": T0; "state": T0; "meta": T0; "depth": T3; };
+type T71 = { "id": T0; "kind": T0; "label": T0; "status": T0; "state": T0; "progress": T0; "detail": T0; "when": T0; };
+type T72 = { "id": T0; "text": T0; "state": T0; };
+type T73 = { "id": T0; "tid": T0; "title": T0; "prompt": T0; "status": T0; "state": T0; "kind": T0; "timing": T0; "next": T0; "running": T2; "overdue": T2; "nextAt": T0; "updatedAt": T0; "targetSessionId": T0; "mode": T0; "date": T0; "time": T0; "zone": T0; "interval": T3; "unit": T0; "days": T0; };
+type T74 = { "id": T0; "taskId": T0; "subject": T0; "status": T0; "owner": T0; };
+type T75 = { "ok": T2; "kind": T0; "media": T0; "name": T0; "bytes": T3; "text": T0; "url": T0; };
+type T76 = { "ok": T2; "kind": T0; "name": T0; "added": T3; "removed": T3; "created": T2; "deleted": T2; "coarse": T2; "cut": T2; "lines": T33; };
+type T77 = { "id": T0; "messageId": T0; "rating": T0; "note": T0; "category": T0; "version": T0; };
+type T78 = T77[];
+type T79 = { "items": T78; };
+type T80 = { "ok": T2; "text": T0; "more": T2; "status": T0; };
+type T81 = T73[];
+type T82 = { "items": T81; "zone": T0; "tomorrow": T0; };
+type T83 = { "id": T0; "text": T0; "images": T26; "files": T24; "editable": T2; };
+type T84 = { "id": T0; "value": T0; "text": T0; "description": T0; "recommended": T2; };
+type T85 = T84[];
+type T86 = { "id": T0; "header": T0; "question": T0; "detail": T0; "multi": T2; "options": T85; };
+type T87 = T86[];
+type T88 = { "title": T0; "description": T0; "nodes": T20; "approve": T0; "chars": T3; };
+type T89 = T88 | null;
+type T90 = { "id": T0; "callId": T0; "kind": T0; "state": T0; "dismissal": T0; "countdown": T3; "running": T2; "held": T2; "items": T87; "plan": T89; };
+type T91 = { "id": T0; "text": T0; "state": T0; };
+type T92 = T91[];
+type T93 = { "title": T0; "steps": T92; };
+type T94 = { "images": T3; "files": T2; "fileBytes": T3; };
+type T95 = T4[];
+type T96 = T1[];
+type T97 = T67 | null;
+type T98 = T47[];
+type T99 = T63[];
+type T100 = T83[];
+type T101 = T72[];
+type T102 = T71[];
+type T103 = T70[];
+type T104 = T74[];
+type T105 = T90 | null;
+type T106 = T3[];
+type T107 = T66 | null;
+type T108 = { "used": T3; "total": T3; "system": T3; "tools": T3; "messages": T3; };
+type T109 = T108 | null;
+type T110 = { "listRev": T0; "rowsRev": T0; "hasMore": T2; "plan": T93; "goal": T0; "goalId": T0; "pinned": T2; "archived": T2; "goalPhase": T0; "goalActivation": T0; "goalRounds": T3; "goalMax": T3; "goalReason": T0; "continueSeq": T3; "planMode": T0; "limits": T94; "origin": T0; "subagentMode": T0; "parentId": T0; "parentTitle": T0; "agentLabel": T0; "subagentProgress": T0; "sessionCwd": T0; "bridgeApi": T3; "bridgeOpen": T2; "sessions": T95; "sessionTitle": T0; "sessionModel": T0; "sessionPermission": T0; "permissionOptions": T96; "running": T2; "inherited": T2; "runLabel": T0; "runActivity": T97; "stats": T68; "messages": T98; "approvals": T99; "queue": T100; "todos": T101; "jobs": T102; "subagents": T103; "team": T104; "question": T105; "streamBlocks": T46; "prefs": T69; "turns": T106; "balance": T107; "context": T109; "quota": T0; "quotaId": T0; };
+type T111 = { "rev": T0; "hasMore": T2; "turns": T106; "rows": T98; };
+type T112 = { "callId": T0; "name": T0; "title": T0; "args": T0; "result": T0; "view": T40; };
+type T113 = { "ok": T2; "error": T0; };
+type T114 = { "id": T0; "name": T0; "kind": T0; "sid": T0; "bytes": T3; };
+type T115 = T114[];
+type T116 = { "ok": T2; "error": T0; "items": T115; };
+type T117 = { "ok": T2; "token": T0; "error": T0; };
+type T118 = { "id": T0; "error": T0; };
+type T119 = { "ok": T2; "server": T0; "token": T0; "alt": T0; "error": T0; };
+type T120 = { "prefersReducedMotion": T2; };
+type T121 = { "permanentlyDenied": T2; "shouldShowRationale": T2; };
 type T122 = T121 | null;
-type T123 = { "symbologies": T27; };
-type T124 = T123 | null;
-type T125 = { "android": T122; "apple": T124; "formats": T27; "tracks": T2; };
-type T126 = { "rawBytes": T89; "valueType": T0; };
-type T127 = T126 | null;
-type T128 = { "payloadData": T89; "symbology": T0; };
-type T129 = T128 | null;
-type T130 = { "height": T3; "width": T3; "x": T3; "y": T3; };
-type T131 = { "x": T3; "y": T3; };
-type T132 = T131[];
-type T133 = { "android": T127; "apple": T129; "boundingBox": T130; "cornerPoints": T132; "format": T0; "rawValue": T0; };
+type T123 = "notDetermined" | "restricted" | "denied" | "authorized";
+type T124 = { "authorizationStatus": T123; };
+type T125 = T124 | null;
+type T126 = "granted" | "prompt" | "denied" | "unknown";
+type T127 = { "android": T122; "apple": T125; "available": T2; "state": T126; };
+type T128 = T3 | null;
+type T129 = { "max": T3; "min": T3; "step": T128; };
+type T130 = T0 | null;
+type T131 = { "refused": T130; };
+type T132 = "audioinput" | "videoinput" | "audiooutput";
+type T133 = { "deviceId": T0; "facingMode": T130; "groupId": T0; "kind": T132; "label": T0; };
 type T134 = T133[];
-type T135 = { "firstSeen": T3; "format": T0; "frames": T3; "lastSeen": T3; "rawValue": T0; };
-type T136 = T135[];
-type T137 = "idle" | "scanning" | "ended";
-type T138 = { "barcodes": T134; "error": T89; "frame": T3; "height": T3; "seen": T136; "state": T137; "width": T3; };
-type T139 = { "barcodes": T134; "height": T3; "width": T3; };
-type T140 = { "path": T0; };
-type T141 = { "height": T3; "path": T0; "size": T3; "type": T0; "width": T3; };
-type T142 = "auto" | "off" | "flash";
-type T143 = T142[];
-type T144 = { "max": T3; "min": T3; "step": T3; };
-type T145 = "never" | "always" | "controllable";
-type T146 = { "fillLightMode": T143; "imageHeight": T144; "imageWidth": T144; "redEyeReduction": T145; };
-type T147 = { "duration": T3; "height": T3; "path": T0; "size": T3; "type": T0; "width": T3; };
-type T148 = { "height": T3; "width": T3; };
-type T149 = { "id": T0; };
-type T150 = { "id": T3; "name": T0; "url": T0; "tab": T0; "params": T149; "fragment": T0; };
+type T135 = { "devices": T134; };
+type T136 = { "cameraId": T130; "isClientSilenced": T2; "lensFacing": T130; };
+type T137 = T136 | null;
+type T138 = { "deviceType": T130; "portName": T130; "portType": T130; "position": T130; };
+type T139 = T138 | null;
+type T140 = T129 | null;
+type T141 = T27 | null;
+type T142 = T2 | null;
+type T143 = { "aspectRatio": T140; "facingMode": T141; "frameRate": T140; "height": T140; "torch": T142; "width": T140; "zoom": T140; };
+type T144 = T143 | null;
+type T145 = "audio" | "video";
+type T146 = "idle" | "interrupted" | "background" | "silenced" | "in-use" | "multitasking" | "system-pressure";
+type T147 = T146 | null;
+type T148 = "live" | "ended";
+type T149 = { "aspectRatio": T128; "autoGainControl": T142; "channelCount": T128; "deviceId": T130; "echoCancellation": T142; "facingMode": T130; "frameRate": T128; "groupId": T130; "height": T128; "latency": T128; "noiseSuppression": T142; "resizeMode": T130; "sampleRate": T128; "sampleSize": T128; "torch": T142; "width": T128; "zoom": T128; };
+type T150 = { "android": T137; "apple": T139; "capabilities": T144; "enabled": T2; "id": T0; "kind": T145; "label": T0; "muteReason": T147; "muted": T2; "readyState": T148; "settings": T149; };
 type T151 = T150[];
-type T152 = { "name": T0; "stack": T151; };
-type T153 = T152[];
-type T154 = { "tab": T0; "tabs": T153; "next": T3; };
-type T155 = "builtInWideAngleCamera" | "builtInUltraWideCamera" | "builtInTelephotoCamera" | "builtInDualCamera" | "builtInDualWideCamera" | "builtInTripleCamera" | "builtInTrueDepthCamera" | "builtInLiDARDepthCamera" | "continuityCamera" | "deskViewCamera" | "external";
-type T156 = T155 | null;
-type T157 = "locked" | "autoExpose" | "continuousAutoExposure";
+type T152 = { "active": T2; "id": T0; "tracks": T151; };
+type T153 = { "aspectRatio": T128; "autoGainControl": T142; "channelCount": T128; "deviceId": T130; "echoCancellation": T142; "facingMode": T130; "frameRate": T128; "groupId": T130; "height": T128; "latency": T128; "noiseSuppression": T142; "resizeMode": T130; "sampleRate": T128; "sampleSize": T128; "torch": T142; "width": T128; "zoom": T128; };
+type T154 = { "permanentlyDenied": T2; "shouldShowRationale": T2; };
+type T155 = T154 | null;
+type T156 = "undetermined" | "denied" | "granted" | "notDetermined" | "restricted" | "authorized";
+type T157 = { "recordPermission": T156; };
 type T158 = T157 | null;
-type T159 = T120 | null;
-type T160 = "locked" | "autoFocus" | "continuousAutoFocus";
-type T161 = T160 | null;
-type T162 = { "deviceType": T156; "exposureMode": T158; "exposurePointOfInterest": T159; "focusMode": T161; "focusPointOfInterest": T159; };
+type T159 = "granted" | "prompt" | "denied" | "unknown";
+type T160 = { "android": T155; "apple": T158; "available": T2; "state": T159; };
+type T161 = { "x": T3; "y": T3; };
+type T162 = { "bundled": T2; };
 type T163 = T162 | null;
-type T164 = { "aspectRatio": T22; "facingMode": T89; "frameRate": T22; "height": T22; "resizeMode": T89; "torch": T101; "track": T0; "width": T22; "zoom": T22; "apple": T163; };
-type T165 = { "formats": T100; "image": T0; };
-type T166 = { "formats": T100; "interval": T22; "track": T0; };
-type T167 = { "track": T0; };
-type T168 = T112 | null;
-type T169 = "mic" | "camcorder" | "voiceRecognition" | "voiceCommunication" | "unprocessed" | "voicePerformance";
+type T164 = { "symbologies": T27; };
+type T165 = T164 | null;
+type T166 = { "android": T163; "apple": T165; "formats": T27; "tracks": T2; };
+type T167 = { "rawBytes": T130; "valueType": T0; };
+type T168 = T167 | null;
+type T169 = { "payloadData": T130; "symbology": T0; };
 type T170 = T169 | null;
-type T171 = { "audioSource": T170; "privacySensitive": T101; };
-type T172 = T171 | null;
-type T173 = "mixWithOthers" | "duckOthers" | "allowBluetoothHFP" | "allowBluetoothA2DP" | "defaultToSpeaker" | "bluetoothHighQualityRecording" | "farFieldInput" | "overrideMutedMicrophoneInterruption";
-type T174 = T173[];
-type T175 = T174 | null;
-type T176 = "builtInWideAngleCamera" | "builtInUltraWideCamera" | "builtInTelephotoCamera" | "builtInDualCamera" | "builtInDualWideCamera" | "builtInTripleCamera" | "builtInTrueDepthCamera" | "builtInLiDARDepthCamera" | "continuityCamera" | "deskViewCamera" | "external";
-type T177 = T176 | null;
-type T178 = "default" | "measurement" | "voiceChat" | "videoChat" | "videoRecording";
-type T179 = T178 | null;
-type T180 = "stereo" | "cardioid" | "omnidirectional";
-type T181 = T180 | null;
-type T182 = { "categoryOptions": T175; "deviceType": T177; "inputDataSource": T89; "mode": T179; "polarPattern": T181; "preferredIOBufferDuration": T22; "prefersNoInterruptionsFromSystemAlerts": T101; };
-type T183 = T182 | null;
-type T184 = { "audio": T101; "audioConstraints": T168; "video": T101; "videoConstraints": T168; "android": T172; "apple": T183; };
-type T185 = { "track": T0; };
-type T186 = "user" | "environment";
-type T187 = T186 | null;
-type T188 = "low" | "high";
-type T189 = T188 | null;
-type T190 = { "sizeLimit": T22; "videoQuality": T189; };
-type T191 = T190 | null;
-type T192 = "typeHigh" | "typeMedium" | "typeLow" | "type640x480" | "typeIFrame1280x720" | "typeIFrame960x540";
-type T193 = T192 | null;
-type T194 = { "videoQuality": T193; };
-type T195 = T194 | null;
-type T196 = { "facingMode": T187; "maxDuration": T22; "path": T89; "android": T191; "apple": T195; };
-type T197 = { "enabled": T2; "track": T0; };
-type T198 = { "track": T0; };
-type T199 = "auto" | "off" | "flash";
-type T200 = T199 | null;
-type T201 = "minimizeLatency" | "maximizeQuality" | "zeroShutterLag";
-type T202 = T201 | null;
-type T203 = "auto" | "on" | "off";
-type T204 = T203 | null;
-type T205 = { "captureMode": T202; "flashMode": T204; "jpegQuality": T22; "shutterSound": T101; };
+type T171 = { "height": T3; "width": T3; "x": T3; "y": T3; };
+type T172 = { "x": T3; "y": T3; };
+type T173 = T172[];
+type T174 = { "android": T168; "apple": T170; "boundingBox": T171; "cornerPoints": T173; "format": T0; "rawValue": T0; };
+type T175 = T174[];
+type T176 = { "firstSeen": T3; "format": T0; "frames": T3; "lastSeen": T3; "rawValue": T0; };
+type T177 = T176[];
+type T178 = "idle" | "scanning" | "ended";
+type T179 = { "barcodes": T175; "error": T130; "frame": T3; "height": T3; "seen": T177; "state": T178; "width": T3; };
+type T180 = { "barcodes": T175; "height": T3; "width": T3; };
+type T181 = { "path": T0; };
+type T182 = { "height": T3; "path": T0; "size": T3; "type": T0; "width": T3; };
+type T183 = "auto" | "off" | "flash";
+type T184 = T183[];
+type T185 = { "max": T3; "min": T3; "step": T3; };
+type T186 = "never" | "always" | "controllable";
+type T187 = { "fillLightMode": T184; "imageHeight": T185; "imageWidth": T185; "redEyeReduction": T186; };
+type T188 = { "duration": T3; "height": T3; "path": T0; "size": T3; "type": T0; "width": T3; };
+type T189 = { "height": T3; "width": T3; };
+type T190 = { "id": T0; };
+type T191 = { "id": T3; "name": T0; "url": T0; "tab": T0; "params": T190; "fragment": T0; };
+type T192 = T191[];
+type T193 = { "name": T0; "stack": T192; };
+type T194 = T193[];
+type T195 = { "tab": T0; "tabs": T194; "next": T3; };
+type T196 = T90[];
+type T197 = T59[];
+type T198 = T59 | null;
+type T199 = T47 | null;
+type T200 = "builtInWideAngleCamera" | "builtInUltraWideCamera" | "builtInTelephotoCamera" | "builtInDualCamera" | "builtInDualWideCamera" | "builtInTripleCamera" | "builtInTrueDepthCamera" | "builtInLiDARDepthCamera" | "continuityCamera" | "deskViewCamera" | "external";
+type T201 = T200 | null;
+type T202 = "locked" | "autoExpose" | "continuousAutoExposure";
+type T203 = T202 | null;
+type T204 = T161 | null;
+type T205 = "locked" | "autoFocus" | "continuousAutoFocus";
 type T206 = T205 | null;
-type T207 = "jpeg" | "hevc";
+type T207 = { "deviceType": T201; "exposureMode": T203; "exposurePointOfInterest": T204; "focusMode": T206; "focusPointOfInterest": T204; };
 type T208 = T207 | null;
-type T209 = "auto" | "on" | "off";
-type T210 = T209 | null;
-type T211 = T148 | null;
-type T212 = "speed" | "balanced" | "quality";
-type T213 = T212 | null;
-type T214 = { "codec": T208; "flashMode": T210; "isAutoRedEyeReductionEnabled": T101; "isShutterSoundSuppressionEnabled": T101; "maxPhotoDimensions": T211; "photoQualityPrioritization": T213; };
+type T209 = { "aspectRatio": T128; "facingMode": T130; "frameRate": T128; "height": T128; "resizeMode": T130; "torch": T142; "track": T0; "width": T128; "zoom": T128; "apple": T208; };
+type T210 = { "formats": T141; "image": T0; };
+type T211 = { "formats": T141; "interval": T128; "track": T0; };
+type T212 = { "track": T0; };
+type T213 = T153 | null;
+type T214 = "mic" | "camcorder" | "voiceRecognition" | "voiceCommunication" | "unprocessed" | "voicePerformance";
 type T215 = T214 | null;
-type T216 = { "fillLightMode": T200; "imageHeight": T22; "imageWidth": T22; "path": T89; "redEyeReduction": T101; "track": T0; "android": T206; "apple": T215; };
-type T217 = "user" | "environment";
-type T218 = T217 | null;
-type T219 = { "facingMode": T218; "path": T89; };
-type T220 = T74 | null;
-type T221 = T75 | null;
-type T222 = T76 | null;
-type T223 = T78 | null;
-type T224 = T77 | null;
-type T225 = T111 | null;
-type T226 = T79 | null;
-type T227 = T109 | null;
-type T228 = { "scrollLeft": T3; "scrollTop": T3; "scrollWidth": T3; "scrollHeight": T3; "clientWidth": T3; "clientHeight": T3; "firstVisibleKey": T89; "firstVisibleOffset": T3; "scrollZoom": T3; };
-type T229 = { "path": T0; "name": T0; "type": T0; "size": T3; "width": T22; "height": T22; "duration": T22; };
-type T230 = T229[];
+type T216 = { "audioSource": T215; "privacySensitive": T142; };
+type T217 = T216 | null;
+type T218 = "mixWithOthers" | "duckOthers" | "allowBluetoothHFP" | "allowBluetoothA2DP" | "defaultToSpeaker" | "bluetoothHighQualityRecording" | "farFieldInput" | "overrideMutedMicrophoneInterruption";
+type T219 = T218[];
+type T220 = T219 | null;
+type T221 = "builtInWideAngleCamera" | "builtInUltraWideCamera" | "builtInTelephotoCamera" | "builtInDualCamera" | "builtInDualWideCamera" | "builtInTripleCamera" | "builtInTrueDepthCamera" | "builtInLiDARDepthCamera" | "continuityCamera" | "deskViewCamera" | "external";
+type T222 = T221 | null;
+type T223 = "default" | "measurement" | "voiceChat" | "videoChat" | "videoRecording";
+type T224 = T223 | null;
+type T225 = "stereo" | "cardioid" | "omnidirectional";
+type T226 = T225 | null;
+type T227 = { "categoryOptions": T220; "deviceType": T222; "inputDataSource": T130; "mode": T224; "polarPattern": T226; "preferredIOBufferDuration": T128; "prefersNoInterruptionsFromSystemAlerts": T142; };
+type T228 = T227 | null;
+type T229 = { "audio": T142; "audioConstraints": T213; "video": T142; "videoConstraints": T213; "android": T217; "apple": T228; };
+type T230 = { "track": T0; };
+type T231 = "user" | "environment";
+type T232 = T231 | null;
+type T233 = "low" | "high";
+type T234 = T233 | null;
+type T235 = { "sizeLimit": T128; "videoQuality": T234; };
+type T236 = T235 | null;
+type T237 = "typeHigh" | "typeMedium" | "typeLow" | "type640x480" | "typeIFrame1280x720" | "typeIFrame960x540";
+type T238 = T237 | null;
+type T239 = { "videoQuality": T238; };
+type T240 = T239 | null;
+type T241 = { "facingMode": T232; "maxDuration": T128; "path": T130; "android": T236; "apple": T240; };
+type T242 = { "enabled": T2; "track": T0; };
+type T243 = { "track": T0; };
+type T244 = "auto" | "off" | "flash";
+type T245 = T244 | null;
+type T246 = "minimizeLatency" | "maximizeQuality" | "zeroShutterLag";
+type T247 = T246 | null;
+type T248 = "auto" | "on" | "off";
+type T249 = T248 | null;
+type T250 = { "captureMode": T247; "flashMode": T249; "jpegQuality": T128; "shutterSound": T142; };
+type T251 = T250 | null;
+type T252 = "jpeg" | "hevc";
+type T253 = T252 | null;
+type T254 = "auto" | "on" | "off";
+type T255 = T254 | null;
+type T256 = T189 | null;
+type T257 = "speed" | "balanced" | "quality";
+type T258 = T257 | null;
+type T259 = { "codec": T253; "flashMode": T255; "isAutoRedEyeReductionEnabled": T142; "isShutterSoundSuppressionEnabled": T142; "maxPhotoDimensions": T256; "photoQualityPrioritization": T258; };
+type T260 = T259 | null;
+type T261 = { "fillLightMode": T245; "imageHeight": T128; "imageWidth": T128; "path": T130; "redEyeReduction": T142; "track": T0; "android": T251; "apple": T260; };
+type T262 = "user" | "environment";
+type T263 = T262 | null;
+type T264 = { "facingMode": T263; "path": T130; };
+type T265 = T112 | null;
+type T266 = T113 | null;
+type T267 = T116 | null;
+type T268 = T118 | null;
+type T269 = T117 | null;
+type T270 = T152 | null;
+type T271 = T119 | null;
+type T272 = T150 | null;
+type T273 = { "scrollLeft": T3; "scrollTop": T3; "scrollWidth": T3; "scrollHeight": T3; "clientWidth": T3; "clientHeight": T3; "firstVisibleKey": T130; "firstVisibleOffset": T3; "scrollZoom": T3; };
+type T274 = { "path": T0; "name": T0; "type": T0; "size": T3; "width": T128; "height": T128; "duration": T128; };
+type T275 = T274[];
 
 /** Sources called by compiled mutation sends. */
-export type MutationSource = "answerQuestion" | "answerQuestions" | "cancelRun" | "createSchedule" | "createSession" | "deleteSchedule" | "dropQueued" | "editSchedule" | "forkFrom" | "forkSession" | "killJob" | "loadCall" | "pairDevice" | "pairFromLink" | "queueItem" | "rateMessage" | "renameSession" | "respondApproval" | "revokeDevice" | "runSchedule" | "runSessionCommand" | "sendPrompt" | "setGoalAction" | "setModel" | "setPermission" | "setSessionFlag" | "skipQuestion" | "uploadPhoto";
+export type MutationSource = "answerQuestions" | "cancelRun" | "clearRating" | "continueGeneration" | "createSession" | "deleteSchedule" | "dismissQuestion" | "dropQueued" | "forkFrom" | "forkSession" | "holdQuestion" | "killJob" | "loadCall" | "openOnMac" | "pairDevice" | "pairFromLink" | "queueItem" | "rateMessage" | "renameSession" | "respondApproval" | "revealQuestion" | "revokeDevice" | "runSchedule" | "runSessionCommand" | "saveSchedule" | "sendPrompt" | "setGoalAction" | "setModel" | "setPermission" | "setSessionFlag" | "toggleSchedule" | "uploadFiles";
 
 export interface SourceMap {
-  "answerQuestion": { args: [T0, T0, T0, T0, T0]; result: T75 };
-  "answerQuestions": { args: [T0, T0, T0, T0]; result: T75 };
-  "cancelRun": { args: [T0, T0, T0]; result: T75 };
-  "createSchedule": { args: [T0, T0, T0, T0, T0]; result: T75 };
-  "createSession": { args: [T0, T0, T0]; result: T78 };
-  "deleteSchedule": { args: [T0, T0, T0, T0]; result: T75 };
-  "dropQueued": { args: [T0, T0, T0, T0]; result: T75 };
-  "editSchedule": { args: [T0, T0, T0, T0]; result: T75 };
-  "forkFrom": { args: [T0, T0, T0, T3]; result: T78 };
-  "forkSession": { args: [T0, T0, T0]; result: T78 };
-  "killJob": { args: [T0, T0, T0, T0]; result: T75 };
-  "loadCall": { args: [T0, T0, T0, T0]; result: T74 };
-  "loadCommands": { args: [T0, T0, T0]; result: T36 };
-  "loadDevices": { args: [T0, T0]; result: T33 };
-  "loadFile": { args: [T0, T0, T0, T0]; result: T48 };
-  "loadLive": { args: [T0, T0, T0, T0, T2]; result: T72 };
-  "loadModels": { args: [T0, T0, T0]; result: T30 };
-  "loadRows": { args: [T0, T0, T0, T3, T0]; result: T73 };
-  "loadSchedules": { args: [T0, T0]; result: T50 };
-  "pairDevice": { args: [T0, T0]; result: T77 };
-  "pairFromLink": { args: [T0]; result: T79 };
-  "queueItem": { args: [T0, T0, T0, T0, T0, T0]; result: T75 };
-  "rateMessage": { args: [T0, T0, T0, T0, T0, T0]; result: T75 };
-  "renameSession": { args: [T0, T0, T0, T0]; result: T78 };
-  "respondApproval": { args: [T0, T0, T0, T2, T2]; result: T75 };
-  "revokeDevice": { args: [T0, T0, T0]; result: T75 };
-  "runSchedule": { args: [T0, T0, T0]; result: T75 };
-  "runSessionCommand": { args: [T0, T0, T0, T0, T0]; result: T75 };
-  "sendPrompt": { args: [T0, T0, T0, T0, T2, T0]; result: T75 };
-  "setGoalAction": { args: [T0, T0, T0, T0]; result: T75 };
-  "setModel": { args: [T0, T0, T0, T0, T0, T0]; result: T75 };
-  "setPermission": { args: [T0, T0, T0, T0]; result: T75 };
-  "setSessionFlag": { args: [T0, T0, T0, T0, T2]; result: T75 };
-  "skipQuestion": { args: [T0, T0, T0]; result: T75 };
-  "uploadPhoto": { args: [T0, T0, T0, T0]; result: T76 };
+  "answerQuestions": { args: [T0, T0, T0, T0]; result: T113 };
+  "cancelRun": { args: [T0, T0, T0]; result: T113 };
+  "clearRating": { args: [T0, T0, T0, T0]; result: T113 };
+  "continueGeneration": { args: [T0, T0, T0, T3, T0]; result: T113 };
+  "createSession": { args: [T0, T0, T0]; result: T118 };
+  "deleteSchedule": { args: [T0, T0, T0, T0]; result: T113 };
+  "dismissQuestion": { args: [T0, T0, T0]; result: T113 };
+  "dropQueued": { args: [T0, T0, T0, T0]; result: T113 };
+  "forkFrom": { args: [T0, T0, T0, T3]; result: T118 };
+  "forkSession": { args: [T0, T0, T0]; result: T118 };
+  "holdQuestion": { args: [T0, T0, T0, T0]; result: T113 };
+  "killJob": { args: [T0, T0, T0, T0]; result: T113 };
+  "loadCall": { args: [T0, T0, T0, T0, T0]; result: T112 };
+  "loadChanges": { args: [T0, T0, T0, T3, T3, T3, T0, T0]; result: T76 };
+  "loadCommands": { args: [T0, T0, T0]; result: T58 };
+  "loadDevices": { args: [T0, T0]; result: T53 };
+  "loadFeedback": { args: [T0, T0, T0]; result: T79 };
+  "loadFile": { args: [T0, T0, T0, T0]; result: T75 };
+  "loadJobOutput": { args: [T0, T0, T0, T0, T3]; result: T80 };
+  "loadLive": { args: [T0, T0, T0, T0, T2, T0]; result: T110 };
+  "loadModels": { args: [T0, T0, T0]; result: T50 };
+  "loadRefs": { args: [T0, T0, T0, T0, T2, T0]; result: T62 };
+  "loadRows": { args: [T0, T0, T0, T3, T0, T0]; result: T111 };
+  "loadSchedules": { args: [T0, T0, T0]; result: T82 };
+  "openOnMac": { args: [T0, T0, T0, T0, T0, T0]; result: T113 };
+  "pairDevice": { args: [T0, T0]; result: T117 };
+  "pairFromLink": { args: [T0]; result: T119 };
+  "queueItem": { args: [T0, T0, T0, T0, T0, T0]; result: T113 };
+  "rateMessage": { args: [T0, T0, T0, T0, T0, T0, T0]; result: T113 };
+  "renameSession": { args: [T0, T0, T0, T0]; result: T118 };
+  "respondApproval": { args: [T0, T0, T0, T0]; result: T113 };
+  "revealQuestion": { args: [T0, T0, T0, T0]; result: T113 };
+  "revokeDevice": { args: [T0, T0, T0]; result: T113 };
+  "runSchedule": { args: [T0, T0, T0]; result: T113 };
+  "runSessionCommand": { args: [T0, T0, T0, T0, T0]; result: T113 };
+  "saveSchedule": { args: [T0, T0, T0, T0, T0, T0, T0, T0, T0, T0, T0, T0, T0]; result: T113 };
+  "sendPrompt": { args: [T0, T0, T0, T0, T2, T0, T0, T0, T0]; result: T113 };
+  "setGoalAction": { args: [T0, T0, T0, T0, T0]; result: T113 };
+  "setModel": { args: [T0, T0, T0, T0, T0, T0]; result: T113 };
+  "setPermission": { args: [T0, T0, T0, T0]; result: T113 };
+  "setSessionFlag": { args: [T0, T0, T0, T0, T2]; result: T113 };
+  "toggleSchedule": { args: [T0, T0, T0, T0, T2]; result: T113 };
+  "uploadFiles": { args: [T0, T0, T0, T0, T0]; result: T116 };
 }
 
 export type Source = keyof SourceMap;
