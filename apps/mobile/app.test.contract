@@ -52,12 +52,12 @@ test "the composer shows 继续生成, the plan chip, the goal strip, the meter 
   type "token" ""
   back
 
-// The jump strip: the turn rail and the jump-to-end chip share one row, the chip shows only
-// away from the end, and the number of the turn under the top edge stays the highlighted one.
+// The jump strip: the turn rail and the always-present jump-to-end chip share one row;
+// the number of the turn under the top edge stays the highlighted one.
 test "the jump strip keeps the rail and the jump-to-end chip on one row, the current turn lit" on web
   locale "en"
   answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Stub chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1m"}],"session":{"id":"sA","title":"Stub chat","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":33554432}}
-  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:12:en","hasMore":false,"seq":6,"turns":[1,2,3],"ids":["u1","a2","u3","a4","u5","a6"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"first request","blocks":[]},{"id":"a2","role":"assistant","seq":2,"turn":1,"msgId":"m1","text":"first reply","state":"done","blocks":[{"id":"b2","kind":"md","text":"first reply body","nodes":[{"id":"n2","t":"p","v":"first reply body."}]}]},{"id":"u3","role":"user","seq":3,"turn":2,"text":"second request","blocks":[]},{"id":"a4","role":"assistant","seq":4,"turn":2,"msgId":"m2","text":"second reply","state":"done","blocks":[{"id":"b4","kind":"md","text":"second reply body","nodes":[{"id":"n4","t":"p","v":"second reply body."}]}]},{"id":"u5","role":"user","seq":5,"turn":3,"text":"third request","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":3,"msgId":"m3","text":"third reply","state":"done","blocks":[{"id":"b6","kind":"md","text":"third reply body","nodes":[{"id":"n6","t":"p","v":"third reply body."}]}]}]}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:12:en","hasMore":false,"seq":6,"turns":[1,2,3],"ids":["u1","a2","u3","a4","u5","a6"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"first request\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"a2","role":"assistant","seq":2,"turn":1,"msgId":"m1","text":"first reply","state":"done","blocks":[{"id":"b2","kind":"md","text":"first reply body","nodes":[{"id":"n2","t":"p","v":"first reply body."}]}]},{"id":"u3","role":"user","seq":3,"turn":2,"text":"second request\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"a4","role":"assistant","seq":4,"turn":2,"msgId":"m2","text":"second reply","state":"done","blocks":[{"id":"b4","kind":"md","text":"second reply body","nodes":[{"id":"n4","t":"p","v":"second reply body."}]}]},{"id":"u5","role":"user","seq":5,"turn":3,"text":"third request\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":3,"msgId":"m3","text":"third reply","state":"done","blocks":[{"id":"b6","kind":"md","text":"third reply body","nodes":[{"id":"n6","t":"p","v":"third reply body."}]}]}]}
   tap "settings"
   type "server" "http://bridge.test"
   type "token" "t"
@@ -70,16 +70,35 @@ test "the jump strip keeps the rail and the jump-to-end chip on one row, the cur
   expect tree has "turn-1"
   expect tree has "turn-3"
   expect state curTurn == 3
+  expect tree has "jump-latest"
   tap "turn-1"
   clock settle
   clock + 600 real
   clock settle
   expect tree has "jump-latest"
-  expect layout "jump-strip" height <= 48
+  expect state curTurn == 1
+  expect layout "turn-rail" height == 44
+  expect layout "jump-strip" height <= 52
+  tap "transcript" drag 0 3000
+  clock + 100
+  clock settle
+  expect state visibleTurn == 1
+  tap "transcript" drag 0 -1000
+  expect state visibleTurn in 2 3
+  tap "transcript" drag 0 3000
+  expect state visibleTurn == 1
+  clock + 100
+  clock settle
+  expect state visibleTurn == 1
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Stub chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1m"}],"session":{"id":"sA","title":"Stub chat","model":"m","permission":"default","rowsRev":"8:8:12:en","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":33554432}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"8:8:12:en","hasMore":false,"seq":8,"turns":[1,2,3],"ids":["u5","a6","u7","a8"],"rows":[{"id":"u5","role":"user","seq":5,"turn":2,"text":"newer request","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":2,"msgId":"m2","text":"newer reply","state":"done","blocks":[]},{"id":"u7","role":"user","seq":7,"turn":3,"text":"latest request","blocks":[]},{"id":"a8","role":"assistant","seq":8,"turn":3,"msgId":"m3","text":"latest reply","state":"done","blocks":[]}]}
+  clock + 800
+  clock data
+  expect state curTurn == 1
   tap "jump-latest"
   clock settle
   clock + 400 real
-  expect tree missing "jump-latest"
+  expect tree has "jump-latest"
   expect state curTurn == 3
   back
   clock data
@@ -108,7 +127,7 @@ test "the list shows unread dots, running subagents and an older bridge" on web
 
 test "a current bridge shows no version hint" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":null,"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":null,"prefs":{},"limits":{},"bridge":{"api":12,"open":true}}
   tap "settings"
   type "server" "http://bridge.test"
   type "token" "t"
@@ -124,7 +143,7 @@ test "a current bridge shows no version hint" on web
 
 test "a turn's tail: feedback dialog, changed files and the comparison page" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":true}}
   answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"9:8:11:en","hasMore":false,"seq":9,"turns":[1],"ids":["u1","a5"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"edit the docs","blocks":[]},{"id":"a5","role":"assistant","seq":5,"turn":1,"msgId":"m1","text":"done","title":"Completed","state":"done","changedCount":5,"changesSeq":9,"changedAdded":12,"changedRemoved":3,"changedFiles":[{"path":"a.txt","name":"a.txt","added":1,"removed":1,"i":0,"note":""},{"path":"b.txt","name":"b.txt","added":2,"removed":0,"i":1,"note":""},{"path":"c.txt","name":"c.txt","added":3,"removed":1,"i":2,"note":""},{"path":"d.png","name":"d.png","added":0,"removed":0,"i":3,"note":"binary"},{"path":"e.txt","name":"e.txt","added":6,"removed":1,"i":4,"note":""}],"deliverables":[{"path":"report.md","text":"the report"}],"blocks":[{"id":"b0","kind":"md","text":"done","nodes":[{"id":"n0","t":"p","v":"done"}]}]}]}
   answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 200 {"items":[],"ok":true}
   answer fetch "http://bridge.test/v1/sessions/sA/changes" with 200 {"kind":"text","name":"a.txt","added":1,"removed":1,"created":false,"deleted":false,"coarse":false,"cut":false,"lines":[{"id":"l0","n":0,"sign":"#","text":"@@ -1,3 +1,3 @@"},{"id":"l1","n":1,"sign":" ","text":"one"},{"id":"l2","n":0,"sign":"-","text":"two"},{"id":"l3","n":2,"sign":"+","text":"TWO"}]}
@@ -165,7 +184,7 @@ test "a turn's tail: feedback dialog, changed files and the comparison page" on 
 
 test "the session menu lists the subagent tree, the environment and a job's output" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Parent","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[],"subagentProgress":"1 in progress · 1 completed","subagents":[{"id":"sC","label":"Writer","sessionId":"sC","sub":"writer","mode":"continuable","modeCode":"continuable","activity":"running","state":"running","meta":"3.5K tok · 1m 5s","depth":0},{"id":"sG","label":"Grep it","sessionId":"sG","sub":"","mode":"one-shot","modeCode":"one-shot","activity":"completed","state":"completed","meta":"90 tok","depth":1}],"jobs":[{"id":"bash-1","kind":"bash","label":"sleep 9","status":"running","state":"running","progress":"","detail":"","when":"1min"}]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Parent","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[],"subagentProgress":"1 in progress · 1 completed","subagents":[{"id":"sC","label":"Writer","sessionId":"sC","sub":"writer","mode":"continuable","activity":"running","state":"running","meta":"3.5K tok · 1m 5s","depth":0},{"id":"sG","label":"Grep it","sessionId":"sG","sub":"","mode":"one-shot","activity":"completed","state":"completed","meta":"90 tok","depth":1}],"jobs":[{"id":"bash-1","kind":"bash","label":"sleep 9","status":"running","state":"running","progress":"","detail":"","when":"1min"}]},"prefs":{},"limits":{},"bridge":{"api":12,"open":true}}
   answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:11:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
   answer fetch "http://bridge.test/v1/sessions/sA/job" with 200 {"text":"hello from the job","more":false,"status":"running"}
   tap "settings"
@@ -199,7 +218,7 @@ test "the session menu lists the subagent tree, the environment and a job's outp
 
 test "a continuable subagent shows its parent and keeps the composer; a one-shot is read-only" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Writer","origin":"subagent","subagentMode":"continuable","parentId":"sP","parentTitle":"Parent session","agentLabel":"Writer","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":1000},"bridge":{"api":11,"open":false}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Writer","origin":"subagent","subagentMode":"continuable","parentId":"sP","parentTitle":"Parent session","agentLabel":"Writer","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":1000},"bridge":{"api":12,"open":false}}
   answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:11:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
   tap "settings"
   type "server" "http://bridge.test"
@@ -213,7 +232,7 @@ test "a continuable subagent shows its parent and keeps the composer; a one-shot
   expect tree has "draft"
   expect tree missing "readonly-note"
   back
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r2","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":2,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Explore","origin":"subagent","subagentMode":"one-shot","parentId":"sP","parentTitle":"Parent session","agentLabel":"Explore","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":false}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r2","sessions":[{"id":"sA","title":"Parent","cwd":"/work","updatedAt":2,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Explore","origin":"subagent","subagentMode":"one-shot","parentId":"sP","parentTitle":"Parent session","agentLabel":"Explore","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":false}}
   clock data
   tap "session-sA"
   clock data
@@ -227,7 +246,7 @@ test "a continuable subagent shows its parent and keeps the composer; a one-shot
 
 test "a scheduled task opens an editor with plain fields, no JSON" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":false}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":false}}
   answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:11:en","hasMore":false,"seq":1,"turns":[],"ids":[],"rows":[]}
   answer fetch "http://bridge.test/v1/schedules" with 200 {"zone":"Asia/Shanghai","tomorrow":"2030-01-02","items":[{"id":"s1","title":"Digest","prompt":"summarize","status":"active","state":"Enabled","kind":"weekly","timing":"Weekly on Mon, Wed at 18:30 (UTC)","next":"Jan 2, 2030, 6:30 PM","running":false,"updatedAt":"u1","mode":"weekly","date":"","time":"18:30","zone":"UTC","interval":1,"unit":"minutes","days":"1,3"}]}
   answer fetch "http://bridge.test/v1/schedules/s1/edit" with 200 {"ok":true}
@@ -274,7 +293,7 @@ test "a scheduled task opens an editor with plain fields, no JSON" on web
 
 test "a recorded rating retracts on a tap; a refused one says so in the official words" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":true}}
   answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"9:8:11:en","hasMore":false,"seq":9,"turns":[1],"ids":["u1","a5"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"hi","blocks":[]},{"id":"a5","role":"assistant","seq":5,"turn":1,"msgId":"m1","text":"done","title":"Completed","state":"done","blocks":[{"id":"b0","kind":"md","text":"done","nodes":[{"id":"n0","t":"p","v":"done"}]}]}]}
   answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 200 {"items":[{"messageId":"m1","rating":"negative","note":"","category":"","version":"v1"}]}
   tap "settings"
@@ -306,10 +325,10 @@ test "a recorded rating retracts on a tap; a refused one says so in the official
 
 test "a presented file opens the viewer, which can open it on the Mac" on web
   locale "en"
-  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":11,"open":true}}
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"A chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"A chat","model":"m","permission":"default","cwd":"/work","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":true}}
   answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"9:8:11:en","hasMore":false,"seq":9,"turns":[1],"ids":["u1","a5"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"hi","blocks":[]},{"id":"a5","role":"assistant","seq":5,"turn":1,"msgId":"m1","text":"done","title":"Completed","state":"done","deliverables":[{"path":"docs/report.md","text":"the report"}],"blocks":[{"id":"b0","kind":"md","text":"done","nodes":[{"id":"n0","t":"p","v":"done"}]}]}]}
   answer fetch "http://bridge.test/v1/sessions/sA/feedback" with 200 {"items":[]}
-  answer fetch "http://bridge.test/v1/sessions/sA/file" with 200 {"ok":true,"kind":"text","media":"text/plain","name":"report.md","bytes":5,"text":"hello"}
+  answer fetch "http://bridge.test/v1/sessions/sA/file" with 200 {"ok":true,"kind":"text","name":"report.md","bytes":5,"text":"hello"}
   answer fetch "http://bridge.test/v1/sessions/sA/open" with 409 {"error":"Could not open it on the Mac. Try again."}
   tap "settings"
   type "server" "http://bridge.test"
@@ -341,7 +360,7 @@ test "system Back from chat, a sheet over it and settings reaches the session li
   locale "en"
   answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Stub chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"1m"}],"session":{"id":"sA","title":"Stub chat","model":"m","permission":"default","messages":[],"queue":[]},"prefs":{},"limits":{"images":20,"files":true,"fileBytes":33554432}}
   answer fetch "http://bridge.test/v1/sessions/sA/models" with 200 {"current":{"provider":"p1","model":"m"},"groups":[{"id":"p1","name":"P1","models":[{"id":"m","name":"Model M","efforts":[]},{"id":"m2","name":"Model M2","efforts":[{"id":"low","name":"Low"},{"id":"high","name":"High"}]}]}]}
-  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:12:en","hasMore":false,"seq":6,"turns":[1,2,3],"ids":["u1","a2","u3","a4","u5","a6"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"first request","blocks":[]},{"id":"a2","role":"assistant","seq":2,"turn":1,"msgId":"m1","text":"first reply","state":"done","blocks":[{"id":"b2","kind":"md","text":"first reply","nodes":[{"id":"n2","t":"p","v":"first reply body."}]}]},{"id":"u3","role":"user","seq":3,"turn":2,"text":"second request","blocks":[]},{"id":"a4","role":"assistant","seq":4,"turn":2,"msgId":"m2","text":"second reply","state":"done","blocks":[{"id":"b4","kind":"md","text":"second reply body","nodes":[{"id":"n4","t":"p","v":"second reply body."}]}]},{"id":"u5","role":"user","seq":5,"turn":3,"text":"third request","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":3,"msgId":"m3","text":"third reply","state":"done","blocks":[{"id":"b6","kind":"md","text":"third reply body","nodes":[{"id":"n6","t":"p","v":"third reply body."}]}]}]}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"1:8:12:en","hasMore":false,"seq":6,"turns":[1,2,3],"ids":["u1","a2","u3","a4","u5","a6"],"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"first request\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"a2","role":"assistant","seq":2,"turn":1,"msgId":"m1","text":"first reply","state":"done","blocks":[{"id":"b2","kind":"md","text":"first reply","nodes":[{"id":"n2","t":"p","v":"first reply body."}]}]},{"id":"u3","role":"user","seq":3,"turn":2,"text":"second request\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"a4","role":"assistant","seq":4,"turn":2,"msgId":"m2","text":"second reply","state":"done","blocks":[{"id":"b4","kind":"md","text":"second reply body","nodes":[{"id":"n4","t":"p","v":"second reply body."}]}]},{"id":"u5","role":"user","seq":5,"turn":3,"text":"third request\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"a6","role":"assistant","seq":6,"turn":3,"msgId":"m3","text":"third reply","state":"done","blocks":[{"id":"b6","kind":"md","text":"third reply body","nodes":[{"id":"n6","t":"p","v":"third reply body."}]}]}]}
   tap "settings"
   type "server" "http://bridge.test"
   type "token" "t"

@@ -62,18 +62,6 @@ shape MdNode
   heads: MdCell[]
   grid: MdRow[]
 
-shape DiffLine
-  id: string
-  sign: string
-  text: string
-
-shape DiffFile
-  id: string
-  path: string
-  added: number
-  removed: number
-  lines: DiffLine[]
-
 // A to-do item and how this write changed it (added, updated, removed, same: unchanged since the previous list), worded as `label` (+ the status it had before).
 shape TodoItem
   id: string
@@ -91,7 +79,6 @@ shape ChoiceItem
 shape ImageRow
   id: string
   att: string
-  media: string
   w: number
   h: number
   text: string
@@ -102,7 +89,6 @@ shape BlockRow
   text: string
   detail: string
   status: string
-  result: string
   nodes: MdNode[]
   callId: string
   child: string
@@ -112,14 +98,11 @@ shape BlockRow
   lazy: bool
   badge: string
   todoSummary: string
-  diffs: DiffFile[]
-  diffHidden: number
   todos: TodoItem[]
   files: FileRow[]
   question: string
   options: ChoiceItem[]
   att: string
-  media: string
   w: number
   h: number
   images: ImageRow[]
@@ -193,8 +176,6 @@ shape ModelRow
   efforts: string[]
 
 shape ModelsReply
-  currentModel: string
-  currentProvider: string
   currentEffort: string
   models: ModelRow[]
 
@@ -307,7 +288,6 @@ shape SubagentRow
   sessionId: string
   sub: string
   mode: string
-  modeCode: string
   activity: string
   state: string
   meta: string
@@ -362,7 +342,6 @@ shape TaskRow
 
 shape TeamRow
   id: string
-  taskId: string
   subject: string
   status: string
   owner: string
@@ -370,7 +349,6 @@ shape TeamRow
 shape FileDoc
   ok: bool
   kind: string
-  media: string
   name: string
   bytes: number
   text: string
@@ -404,7 +382,6 @@ shape FeedbackItem
   messageId: string
   rating: string
   note: string
-  category: string
   version: string
 
 shape FeedbackReply
@@ -463,7 +440,6 @@ shape PlanReview
   description: string
   nodes: MdNode[]
   approve: string
-  chars: number
 
 // A tool row's question state (waiting, answered n/m, cancelled…) and a late reply's Q&A.
 shape AskCard
@@ -559,9 +535,16 @@ shape ContextRow
   messages: number
 
 shape Rows
-  rev: string
   hasMore: bool
+  from: number
   turns: number[]
+  rows: MessageRow[]
+
+shape History
+  session: string
+  before: number
+  from: number
+  hasMore: bool
   rows: MessageRow[]
 
 // The card a tool row opens: parts of kind cmd (a shell command and its exit status), lines (numbered / signed lines, folded), items
@@ -616,7 +599,6 @@ shape CallDetail
   name: string
   title: string
   args: string
-  result: string
   view: ToolView
 
 shape Reply
@@ -736,6 +718,7 @@ fn fmtTps(v: number): string = v >= 10 ? `${round(v)}` : `${round(v * 10) / 10}`
 fn viewName(v: string): string = v == "compact" ? t("view.compact") : (v == "detailed" ? t("view.detailed") : (v == "verbose" ? t("view.verbose") : t("view.standard")))
 // The turn rail: the opening row of a loaded turn (its id), else "".
 fn openerOf(rows: MessageRow[], n: number): string = match first(rows.filter(r => r.turn == n)) { case some(r) => r.id, case none => "" }
+fn mergeRows(older: MessageRow[], newer: MessageRow[]): MessageRow[] = older.filter(o => not newer.map(m => m.id).includes(o.id)).concat(newer)
 // The last path segment (a changed file's name, a presented file's title).
 fn baseName(p: string): string = match p.split("/").filter(x => x != "").at(-1) { case some(v) => v, case none => p }
 // The rating this session holds for a message ('' none, positive, negative), and the official words for a refused rating (ui-message-feedback).
@@ -798,14 +781,22 @@ component Mobile
   state pinned = ""
   state topKey = ""
   state topOffset = 0.0
+  state railLeft = 0.0
+  state railSynced = 0
+  state visibleTurn = 0
+  state visibleCandidate = 0
+  state jumpTurning = 0
   state loadedCount = 0
-  state loadingMore = false
+  state older: MessageRow[] = []
+  state olderFrom = 0
+  state olderLoaded = false
+  state olderMore = false
+  state moreSid = ""
   state anchorKey = ""
   state anchorPending = 0
   state anchorOffset = 0.0
   state topArmed = false
   state nearTop = false
-  state moreErr = ""
   state openCall = ""
   // The card parts the person unfolded ("… 其余 N 行"), as `callId.partId`; the code block whose copy button was just pressed; the
   // viewer's image reload counter.
@@ -859,8 +850,12 @@ component Mobile
   // below — the Snapshot wrap this replaced forced the live seam to carry
   // those fields (and their descriptor) a second time.
   derive snap = LiveCore(live, sessions=(listRows.length > 0 ? listRows : live.sessions))
-  derive msgs = selected == "" ? [] : rows.rows
-  derive rowsMore = selected == "" ? false : rows.hasMore
+  derive msgs = selected == "" ? [] : mergeRows(older, rows.rows)
+  derive rowsMore = selected == "" ? false : (olderLoaded ? olderMore : rows.hasMore and rows.from > 0)
+  derive historyCursor = olderLoaded ? olderFrom : rows.from
+  derive loadingMore = moreSid == selected and pending(more)
+  derive moreErr = moreSid == selected ? (match failure(more) { case some(f) => f.message, case none => "" }) : ""
+  derive olderReply = match more { case some(p) => p, case none => History(session="", before=0, from=0, hasMore=false, rows=[]) }
   derive turnList = selected == "" ? [] : rows.turns
   resource view = exactViewport() as shape Viewport
   // Composer takeover (the desktop's composer chain): a pending question / plan review wins the seat, then an
@@ -893,8 +888,8 @@ component Mobile
   derive readOnly = snap.origin == "subagent" and snap.subagentMode != "continuable"
   // Files go to the host's staging under the session's own agent: a subagent child takes pictures only.
   derive canFiles = snap.limits.files and snap.origin != "subagent"
-  // The Mac's bridge is older than this app needs (a bridge before wave 6 sends no revision): say so once the list has loaded.
-  derive bridgeOld = signedIn and everOk and snap.bridgeApi < 11
+  // The Mac's bridge is older than this app needs (cursor history pages arrived in API 12): say so once the list has loaded.
+  derive bridgeOld = signedIn and everOk and snap.bridgeApi < 12
   derive feedbackCategories = ["task-result", "instruction-following", "product-interaction", "service-stability", "resource-cost", "security-privacy-permission", "other"]
   derive fbError = match rated { case some(r) => (r.ok or fbMsg == "" or not fbSent ? "" : fbErr(r.error)), case none => "" }
   derive macErr = match macOpened { case some(r) => (r.ok ? "" : r.error), case none => "" }
@@ -906,6 +901,7 @@ component Mobile
   derive taskValid = sName.trim() != "" and sPrompt.trim() != "" and (sMode == "custom" or (sMode == "once" ? sDate != "" and sTime != "" : (sMode == "every" ? intervalOk : (sMode == "daily" ? sTime != "" : sTime != "" and sDays != ""))))
   derive still = view.prefersReducedMotion
   mutation detail as shape CallDetail
+  mutation more as shape History then afterMore
   mutation sent as shape Reply refreshes live then afterSend
   mutation uploaded as shape UploadReply then afterUpload
   state filePath = ""
@@ -1053,7 +1049,7 @@ component Mobile
   derive body = snap.streamBlocks.length == 0 ? msgs : (msgs.filter(m => m.active).length > 0 ? msgs.map(m => m.active ? MessageRow(m, blocks=m.blocks.concat(snap.streamBlocks)) : m) : msgs.concat([blankRow("streaming", "assistant", 2147483000, "", snap.streamBlocks, true)]))
   derive goalRow = (snap.plan.steps.length == 0 ? [] : [blankRow("goal", "goal", -1, "", snap.plan.steps.map(step => BlockRow(
       child="", lazy=false, id=step.id, kind="plan",
-      text=step.text, detail="", status=step.state, result="", nodes=[], callId="", icon="", summary="", args="", badge="", todoSummary="", diffs=[], diffHidden=0, todos=[], files=[], question="", options=[], att="", media="", w=0, h=0, images=[], ask=none, grp="", answer=false, title="", suffix="", added=0, removed=0, view=ToolView(kind="", head="", tone="", more=0, parts=[]))), false)])
+      text=step.text, detail="", status=step.state, nodes=[], callId="", icon="", summary="", args="", badge="", todoSummary="", todos=[], files=[], question="", options=[], att="", w=0, h=0, images=[], ask=none, grp="", answer=false, title="", suffix="", added=0, removed=0, view=ToolView(kind="", head="", tone="", more=0, parts=[]))), false)])
   // A fork child: desktop's InheritedHistory separator at the transcript top.
   derive seedRow = (snap.inherited and msgs.length > 0 ? [blankRow("seed", "seed", 0, "", [], false)] : [])
   derive threadBase = seedRow.concat(goalRow.concat(body))
@@ -1082,7 +1078,7 @@ component Mobile
   derive tailRow = msgs.filter(m => m.role == "user" or m.role == "assistant").at(-1)
   derive lastSteer = match tailRow { case some(m) => m.role == "assistant" ? (match m.blocks.filter(b => b.kind == "steer").at(-1) { case some(b) => b.text, case none => "" }) : "", case none => "" }
   derive lastUserText = lastSteer != "" ? lastSteer : (match msgs.filter(m => m.role == "user").at(-1) { case some(u) => u.text, case none => "" })
-  derive anchor = match msgs.at(-1) { case some(m) => m.role == "user" ? m.id : m.id, case none => "" }
+  derive anchor = match msgs.at(-1) { case some(m) => m.id, case none => "" }
   derive anchorEnd = match msgs.at(-1) { case some(m) => m.role != "user", case none => false }
   derive shown = snap.sessions.filter(s => query.trim() == "" or (s.title == "" ? t("list.untitled") : s.title).toLowerCase().includes(query.trim().toLowerCase()) or s.cwd.toLowerCase().includes(query.trim().toLowerCase()))
 
@@ -1098,6 +1094,15 @@ component Mobile
   // change task) — afterLink stops the camera, which is this trigger's input.
   task doneWatch when token != "" and selected != "" key=snap.running
     change(checkDone)
+
+  task railSync when pinned == selected and selected != "" and railSynced != curTurn
+    after(80, syncRail)
+
+  task jumpSettle when jumpTurning > 0 key=jumpTurning
+    after(700, clearJumpTurn)
+
+  task visibleSettle when visibleCandidate > 0 and visibleCandidate != visibleTurn and jumpTurning == 0 key=visibleCandidate
+    after(300, settleVisibleTurn)
 
   task toastClear when doneToast != ""
     after(4000, clearDoneToast)
@@ -1133,16 +1138,18 @@ component Mobile
   derive turnRows = msgs.filter(m => m.role == "user" or m.role == "trigger")
   derive railTurns = turnList.length > 0 ? turnList : turnRows.map(r => r.turn)
   derive lastTurn = match railTurns.at(-1) { case some(v) => v, case none => 0 }
-  // The turn the transcript is on now: while following the end, the top edge sits on an
-  // older reply, so take the newest turn; otherwise the turn of the row under the top edge.
-  derive curTurn = stick ? lastTurn : match first(msgs.filter(m => m.id == topKey)) { case some(m) => (m.turn >= 1 ? m.turn : 1), case none => lastTurn }
-  action jumpTurn(id: string)
+  // The last valid row under the top edge. A transient empty key or an at-end bounce never moves it to another turn.
+  derive curTurn = visibleTurn > 0 ? visibleTurn : lastTurn
+  action jumpTurn(id: string, n: number)
+    visibleTurn = n
+    visibleCandidate = 0
+    jumpTurning = n
     stick = false
     scrollIntoView("transcript", id, block="start", behavior="smooth")
   action jumpTo(n: number)
     let at = openerOf(turnRows, n)
     if at != ""
-      jumpTurn(at)
+      jumpTurn(at, n)
     else
       if rowsMore
         jumpWant = n
@@ -1152,9 +1159,23 @@ component Mobile
         take = min(max(take, railTurns.filter(x => x >= n).length + 2), 120)
   action jumpLatest
     if lastId != ""
+      visibleTurn = lastTurn
+      visibleCandidate = 0
+      jumpTurning = 0
       scrollIntoView("transcript", lastId, block="start", behavior="smooth")
       stick = true
       pinned = selected
+  action clearJumpTurn
+    jumpTurning = 0
+  action settleVisibleTurn
+    if visibleCandidate > 0 and jumpTurning == 0
+      visibleTurn = visibleCandidate
+  action syncRail
+    if curTurn > 0
+      railSynced = curTurn
+      scrollIntoView(`turn-${curTurn}`, block="nearest", inline="nearest", behavior="instant")
+  action railMoved(x: number, y: number)
+    railLeft = x
   action poll
     // Hot (a turn running or streaming, something waiting on the person, or just after a
     // send or command): refresh on every 700 ms tick. Idle: on every fourth, ~2.8 s: a phone
@@ -1188,15 +1209,19 @@ component Mobile
       lastFork = forkedHereId
       receipt = t("chat.forkedHere")
     let grew = msgs.length != loadedCount
-    if grew
-      loadingMore = false
     loadedCount = msgs.length
+    let failedMore = moreErr != ""
+    let restoreKey = failedMore ? "" : anchorKey
+    let restorePending = failedMore ? 0 : anchorPending
+    if failedMore
+      anchorKey = ""
+      anchorPending = 0
     // Prepend compensation, applied on the tick the window grows and once more on the
     // next tick: the virtual list lays the new rows out a frame later.
-    let armed = grew and anchorKey != ""
-    if anchorKey != "" and (armed or anchorPending > 0)
-      scrollIntoView("transcript", anchorKey, offset=anchorOffset, behavior="instant")
-      let left = (armed ? 2 : anchorPending) - 1
+    let armed = grew and restoreKey != ""
+    if restoreKey != "" and (armed or restorePending > 0)
+      scrollIntoView("transcript", restoreKey, offset=anchorOffset, behavior="instant")
+      let left = (armed ? 2 : restorePending) - 1
       if left == 0
         anchorKey = ""
       anchorPending = left
@@ -1221,6 +1246,8 @@ component Mobile
       else
         scrollIntoView("transcript", anchor, block="start", behavior="instant")
       pinned = selected
+      visibleTurn = lastTurn
+      visibleCandidate = 0
     // A running job's output stays current while its page is open (the tail is asked again every fourth tick).
     let jobRuns = top(nav).name == "jobs" and openJob != "" and (match first(snap.jobs.filter(j => j.id == openJob)) { case some(j) => j.status == "running" or j.status == "stopping", case none => false })
     if jobRuns and not pending(jobOut)
@@ -1252,11 +1279,11 @@ component Mobile
     setDraft(v)
   action editScanNote(v: string)
     scanNote = v
-  action toggleCall(id: string)
+  action toggleCall(id: string, seq: number)
     let opening = openCall != id
     openCall = opening ? id : ""
     if opening and selected != ""
-      send detail = loadCall(server, token, selected, id, effLang)
+      send detail = loadCall(server, token, selected, id, effLang, seq)
   // A card's folded lines: "… 其余 N 行" opens the rest (key = `callId.partId`).
   action togglePart(key: string)
     openParts = openParts.includes(key) ? openParts.filter(x => x != key) : openParts.concat([key])
@@ -1303,10 +1330,20 @@ component Mobile
   action open(id: string)
     take = 8
     stick = true
-    loadingMore = false
-    moreErr = ""
+    older = []
+    olderFrom = 0
+    olderLoaded = false
+    olderMore = false
+    moreSid = ""
     anchorKey = ""
+    topKey = ""
+    topOffset = 0.0
     loadedCount = 0
+    railLeft = 0.0
+    railSynced = 0
+    visibleTurn = 0
+    visibleCandidate = 0
+    jumpTurning = 0
     topArmed = false
     nearTop = false
     openGroups = []
@@ -1315,7 +1352,7 @@ component Mobile
     nav = push(nav, path("chat", id))
   action openChild(id: string)
     if id != ""
-      nav = push(nav, path("chat", id))
+      open(id)
 
   action openFile(p: string)
     imgFull = ""
@@ -1569,14 +1606,25 @@ component Mobile
   action editQuery(v: string)
     query = v
   action loadFrom(key: string, offset: number)
-    if rowsMore and not loadingMore
+    if rowsMore and not loadingMore and historyCursor > 0
       stick = false
-      loadingMore = true
-      moreErr = ""
+      moreSid = selected
       anchorKey = (key == "" or key == "goal" or key == "more" ? "" : key)
       anchorOffset = offset
       anchorPending = 0
-      take = min(take + 8, 60)
+      send more = loadOlder(server, token, selected, historyCursor, effLang)
+  action afterMore
+    let p = olderReply
+    if p.session == selected and p.before == historyCursor
+      let combined = mergeRows(p.rows, older)
+      let previous = older.length
+      older = combined
+      olderLoaded = true
+      olderMore = p.hasMore and p.from > 0 and p.from < p.before and combined.length > previous
+      olderFrom = p.from
+      if combined.length == previous
+        anchorKey = ""
+        anchorPending = 0
   action loadEarlier
     loadFrom(topKey, topOffset)
   action moved(x: number, y: number, e: ScrollEvent)
@@ -1591,10 +1639,14 @@ component Mobile
     let armed = topArmed
     let armAgain = e.scrollTop > 200
     let reachTop = e.scrollTop < 80
+    let visible = match first(msgs.filter(m => m.id == k and m.turn >= 1)) { case some(m) => m.turn, case none => 0 }
+    let atEnd = (e.scrollHeight - e.scrollTop - e.clientHeight) <= 24
+    if visible > 0 and jumpTurning == 0 and not atEnd
+      visibleCandidate = visible
     topKey = k
     topOffset = off
     // Following the end is a consequence of being at the end, not a mode to remember.
-    stick = (e.scrollHeight - e.scrollTop - e.clientHeight) <= 24
+    stick = atEnd
     nearTop = e.scrollTop < 120
     // Armed stays armed while scrolling up: it used to be re-derived from
     // "scrollTop > 200" on every event, so creeping up past 200 disarmed the
@@ -1940,7 +1992,7 @@ component Mobile
                 text (snap.parentTitle != "" ? snap.parentTitle : t("subagent.parent")) font-size="0.69rem" color="brand.fill" line-clamp=1 testId="breadcrumb-parent"
                 image "symbol:forward-chevron" font-size="0.5rem" color="-exact-tertiary-label"
                 text (snap.agentLabel != "" ? snap.agentLabel : snap.sessionTitle) font-size="0.69rem" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0 testId="breadcrumb-agent"
-            if (nearTop and rowsMore) or loadingMore or moreErr != ""
+            if (nearTop and (rowsMore or olderLoaded)) or loadingMore or moreErr != ""
               row justify-content="center" align-items="center" height=36 background-color="surface.page"
                 if loadingMore
                   text t("list.loading") font-size="0.8rem" color="-exact-secondary-label" testId="more-loading"
@@ -1949,9 +2001,12 @@ component Mobile
                     button press=loadEarlier buttonStyle="bordered" testId="more-retry"
                       text t("list.loadFailed")
                   else
-                    button press=loadEarlier buttonStyle="bordered" testId="load-earlier"
-                      text t("list.loadEarlier")
-            list id="transcript" testId="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=(stick) scroll=moved flex=1 min-height=0
+                    if rowsMore
+                      button press=loadEarlier buttonStyle="bordered" testId="load-earlier"
+                        text t("list.loadEarlier")
+                    else
+                      text t("list.beginning") font-size="0.8rem" color="-exact-secondary-label" testId="more-beginning"
+            list id="transcript" testId="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=(stick) scroll=moved scrollend=settleVisibleTurn flex=1 min-height=0
               for m in thread key=m.id
                 column padding="4px 0" testId=`row-${m.id}`
                   // use-calendar-day parity: a labeled rule wherever the local
@@ -2051,7 +2106,7 @@ component Mobile
                               text t("chat.openSubagent") font-size="0.69rem" color="brand.fill"
                           if b.kind == "tool" and shown(m, b, keepAll, openGroups)
                             column gap=4 background-color="surface.card" border-radius=10 padding="8px 10px"
-                              row gap=6 align-items="center" press=toggleCall(b.callId) testId=`call-${b.callId}`
+                              row gap=6 align-items="center" press=toggleCall(b.callId, m.seq) testId=`call-${b.callId}`
                                 image b.icon color="-exact-secondary-label"
                                 // The localized title (ui-tool's row title), the wire name beside it as small mono text, then the one-line summary.
                                 text (b.title != "" ? b.title : b.text) font-size="0.81rem" font-weight=600 testId=`call-title-${b.callId}`
@@ -2310,17 +2365,16 @@ component Mobile
                 text receipt flex=1 min-width=0 font-size="0.69rem" color="-exact-secondary-label" line-clamp=2
             if sendError != "" and not pending(sent)
               text sendError font="-exact-footnote" color="-exact-system-red" padding="0 16px"
-            if railTurns.length > 1 or not stick
-              // One row: the turn rail scrolls, the jump-to-end chip stays pinned at the right
-              // edge however far the numbers run. Its chip is the turn the transcript is on.
+            if railTurns.length > 0 or not stick
+              // One row: the turn rail follows the transcript, and the always-present jump-to-end chip stays pinned at the right.
               row gap=6 padding="0 12px 6px 12px" align-items="center" justify-content=(railTurns.length > 1 ? "flex-start" : "flex-end") testId="jump-strip"
                 if railTurns.length > 1
-                  scroll height=36 flex=1 min-width=0 testId="turn-rail"
-                    row gap=6 padding="6px 0" align-items="center"
+                  scroll id="turn-rail" height=44 flex=1 min-width=0 overflow-y="hidden" scrollbar-width="none" scroll=railMoved testId="turn-rail"
+                    row gap=6 height=44 box-sizing="border-box" padding="6px 0" align-items="center"
                       for tn in railTurns key=`${tn}`
-                        row press=jumpTo(tn) justify-content="center" align-items="center" min-width=32 min-height=26 padding="3px 8px" background-color=(tn == curTurn ? "brand.fill" : "surface.card") border-radius=13 opacity=(openerOf(turnRows, tn) == "" ? 0.55 : 1) aria-label=(openerOf(turnRows, tn) == "" ? t("chat.jumpTurnLoad", n=tn) : t("chat.jumpTurn", n=tn)) testId=`turn-${tn}`
+                        row id=`turn-${tn}` press=jumpTo(tn) justify-content="center" align-items="center" min-width=32 min-height=26 padding="3px 8px" background-color=(tn == curTurn ? "brand.fill" : "surface.card") border-radius=13 opacity=(openerOf(turnRows, tn) == "" ? 0.55 : 1) aria-label=(openerOf(turnRows, tn) == "" ? t("chat.jumpTurnLoad", n=tn) : t("chat.jumpTurn", n=tn)) testId=`turn-${tn}`
                           text `${tn}` font-size="0.72rem" color=(tn == curTurn ? "ink.on-brand" : "-exact-secondary-label") font-weight=(tn == curTurn ? 600 : 400)
-                if not stick
+                if railTurns.length > 0
                   row press=jumpLatest justify-content="center" align-items="center" min-width=36 min-height=26 background-color="surface.card" border-radius=13 testId="jump-latest" aria-label=t("chat.latest")
                     image "symbol:icon||0 0 24 24|M6 8.6L12 14.6 18 8.6 16.4 7 12 11.4 7.6 7Z M6 12.8L12 18.8 18 12.8 16.4 11.2 12 15.6 7.6 11.2Z|" width=16 height=16 object-fit="contain" color="-exact-secondary-label"
             column gap=6 padding="0 10px 8px 10px"
@@ -3178,7 +3232,7 @@ component PlanCard
     submit: action
     dismiss: action
   state open = false
-  derive plan = match q.plan { case some(p) => p, case none => PlanReview(title="", description="", nodes=[], approve="", chars=0) }
+  derive plan = match q.plan { case some(p) => p, case none => PlanReview(title="", description="", nodes=[], approve="") }
   derive qid = match first(q.items) { case some(it) => it.id, case none => "" }
   action toggle
     open = not open

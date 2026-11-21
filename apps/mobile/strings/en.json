@@ -44,6 +44,7 @@
   "list.loadEarlier": "Load earlier messages",
   "list.loadFailed": "Failed to load · Retry",
   "list.loading": "Loading…",
+  "list.beginning": "Beginning of conversation",
   "list.noMatch": "No matching sessions.",
   "list.running": "Working…",
   "list.scanMac": "Scan the code on your Mac",

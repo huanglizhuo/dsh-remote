@@ -83,13 +83,10 @@
 
 要点：**文案不再依赖 `pending(snap)`**（那条曾经因为 700ms 轮询反复翻转，这就是上一轮「一直闪」的根因）。
 
-### D. 超过 400 条之后
+### D. 真正的无限分页
 
-现在 `take` 有 20–400 的上限，取满之后 `hasMore` 仍为真但再也加不上去。补一条真正的分页：
-
-- bridge：`/v1/snapshot?...&before=<seq>` 透传给 `sessionController.events({ address, beforeSeq })`；
-- app：`state older` 累积「更早的页」，与当前窗口按 `seq` 去重合并；`take` 逻辑保留给「一次看更多」。
-- 这样「向上无限加载」才是真的无限。
+- bridge：`GET /v1/transcript?...&before=<seq>` 透传给 `sessionController.events({ address, beforeSeq })`，按完整的 host Turn 返回上一页；响应里的 `from` 是下一页游标。最新窗口和历史页分别受 240 KB / 400 KB 预算限制，预算只决定页的大小，不再决定能回溯多远。
+- app：`state older` 累积更早的页，与当前窗口按稳定的行 `id` 去重合并；加载更早不再增加 `take`，最新窗口的轮询仍走 `since=` 增量。请求结束就清除 loading，空页或不前进的游标会停止续载，失败可重试同一游标。
 
 ### E. 读历史时不被拽回底部（顺带）
 
@@ -104,7 +101,7 @@
 | P1 | 锚定补偿：点 `Load earlier` 前后，同一行 y 坐标完全不变（`-778.33` → `-778.33`），新行插在上方 | ✅ |
 | P2 | 到顶自动触发：滚到顶部自动加载，`take` 80 → 200 | ✅（还加了「打开会话时不误触发」） |
 | P4 | 读历史时出现 `Latest ›` 胶囊，点击回到底部并恢复跟随 | ✅ |
-| P3 | `before=<seq>` 真分页 | ⏳ 未做；当前把上限抬到 1200 条（bridge 与 app 同步），超过再往前翻需要真分页 |
+| P3 | `before=<seq>` 真分页 | ✅ bridge 按 Turn 返回历史页，app 累积去重；空页、游标不前进和失败都有终态 |
 
 ## 6. 风险与备选
 
@@ -118,4 +115,4 @@
 
 - 不引入 `column-reverse`（Exact 的 list 也不支持反转）。
 - 不改「按 turn 合并」的数据形状。
-- 不改 `/v1/snapshot` 的返回结构，只是多一个可选 `before`。
+- `/v1/transcript` 的最新窗口与 `since=` 增量格式保持兼容，只新增 `from` 游标和可选 `before` 历史页。

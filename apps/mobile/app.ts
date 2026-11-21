@@ -27,13 +27,10 @@ type WireBlock = {
   files?: { id?: string; path?: string; text?: string }[];
   question?: string;
   options?: { id?: string; text?: string }[];
-  diffs?: { id?: string; path?: string; added?: number; removed?: number; lines?: { id?: string; sign?: string; text?: string }[] }[];
-  diffHidden?: number;
   att?: string;
-  media?: string;
   w?: number;
   h?: number;
-  images?: { id?: string; att?: string; media?: string; w?: number; h?: number; text?: string }[];
+  images?: { id?: string; att?: string; w?: number; h?: number; text?: string }[];
   ask?: WireAsk | null;
   // The process group the block belongs to (a header block of kind 'group' carries that id); a reply of the final answer step.
   grp?: string;
@@ -78,12 +75,12 @@ function withMentions(text: string, picks: string): string {
 // A note row's header (title / summary / icon / state) is worded by the bridge in the `lang` the phone asked for; `refs` carry a kind (skill | session | file).
 // An assistant row of a closed turn also carries the turn control (title / summary / state), the flags the phone folds by and the turn's usage panel.
 type WireMessage = { id?: string; role?: string; seq?: number; turn?: number | null; msgId?: string; text?: string; fullText?: string; usage?: string; usageRows?: { id?: string; label?: string; value?: string }[]; title?: string; summary?: string; icon?: string; state?: string; interrupted?: boolean; failed?: boolean; active?: boolean; steered?: boolean; foldAll?: boolean; foldFinal?: boolean; changedCount?: number; changesSeq?: number; changedAdded?: number; changedRemoved?: number; changedFiles?: { path?: string; name?: string; added?: number; removed?: number; i?: number; note?: string }[]; deliverables?: { path?: string; text?: string }[]; refs?: { path?: string; kind?: string }[]; day?: string; blocks?: WireBlock[] };
-type WireSession = { id?: string; title?: string | null; running?: boolean; runStartedAt?: number; pinned?: boolean; archived?: boolean; cwd?: string | null; updatedAt?: number | null; group?: string | null; first?: boolean; when?: string | null; attention?: string; unread?: string; subs?: number };
+type WireSession = { id?: string; title?: string | null; running?: boolean; pinned?: boolean; archived?: boolean; cwd?: string | null; updatedAt?: number | null; group?: string | null; first?: boolean; when?: string | null; attention?: string; unread?: string; subs?: number };
 // A tool approval, or a question-intent approval (subject / detail / the asker's labels).
 type WireApproval = { id?: string; toolName?: string | null; reason?: string | null; command?: string; summary?: string | null; args?: string; subject?: string; detail?: string; approveLabel?: string; alwaysLabel?: string };
-type WireQueue = { id?: string; text?: string; images?: { id?: string; att?: string; media?: string; w?: number; h?: number; text?: string }[]; files?: { id?: string; path?: string; text?: string }[]; editable?: boolean };
+type WireQueue = { id?: string; text?: string; images?: { id?: string; att?: string; w?: number; h?: number; text?: string }[]; files?: { id?: string; path?: string; text?: string }[]; editable?: boolean };
 type WireQuestionItem = { id?: string; header?: string; question?: string; detail?: string; multiSelect?: boolean; options?: { id?: string; label?: string; text?: string; description?: string; recommended?: boolean }[] };
-type WirePlan = { title?: string; description?: string; nodes?: WireNode[]; approve?: string; chars?: number };
+type WirePlan = { title?: string; description?: string; nodes?: WireNode[]; approve?: string };
 // The Mac's pending question / plan review, mirrored from its own composer card.
 type WireQuestion = { id?: string; callId?: string | null; kind?: string; state?: string; dismissal?: string; countdown?: number; running?: boolean; held?: boolean; questions?: WireQuestionItem[]; plan?: WirePlan | null };
 type WireSnapshot = {
@@ -93,7 +90,6 @@ type WireSnapshot = {
     id?: string;
     title?: string | null;
     running?: boolean;
-    runStartedAt?: number;
     inherited?: boolean;
     runLabel?: string;
     runActivity?: { kind?: string; label?: string; detail?: string } | null;
@@ -108,13 +104,13 @@ type WireSnapshot = {
     messages?: WireMessage[];
     queue?: WireQueue[];
     todos?: { id?: string; text?: string; state?: string; change?: string }[];
-    subagents?: { id?: string; label?: string; sessionId?: string; sub?: string; mode?: string; modeCode?: string; activity?: string; state?: string; meta?: string; depth?: number }[];
+    subagents?: { id?: string; label?: string; sessionId?: string; sub?: string; mode?: string; activity?: string; state?: string; meta?: string; depth?: number }[];
     subagentProgress?: string;
     parentId?: string;
     parentTitle?: string;
     agentLabel?: string;
     cwd?: string | null;
-    team?: { id?: string; taskId?: string; subject?: string; status?: string; owner?: string }[];
+    team?: { id?: string; subject?: string; status?: string; owner?: string }[];
     jobs?: { id?: string; kind?: string; label?: string; status?: string; state?: string; progress?: string; detail?: string; when?: string }[];
     goalId?: string | null;
     pinned?: boolean;
@@ -272,7 +268,6 @@ const mapQuestion = (q: WireQuestion) => ({
       description: typeof q.plan.description === 'string' ? q.plan.description : '',
       nodes: mapNodes(q.plan.nodes),
       approve: typeof q.plan.approve === 'string' ? q.plan.approve : '',
-      chars: typeof q.plan.chars === 'number' ? q.plan.chars : 0,
     }
     : null,
 });
@@ -324,7 +319,6 @@ const mapBlock = (b: WireBlock, i: number) => ({
   text: typeof b.name === 'string' ? b.name : typeof b.text === 'string' ? b.text : '',
   detail: typeof b.detail === 'string' ? b.detail : '',
   status: typeof b.status === 'string' ? b.status : '',
-  result: typeof b.result === 'string' ? b.result : '',
   callId: typeof b.callId === 'string' ? b.callId : '',
   // A subagent tool result names the child session; offer a jump to it.
   child: (() => {
@@ -355,13 +349,11 @@ const mapBlock = (b: WireBlock, i: number) => ({
   })),
   question: typeof b.question === 'string' ? b.question : '',
   att: typeof b.att === 'string' ? b.att : '',
-  media: typeof b.media === 'string' ? b.media : '',
   w: typeof b.w === 'number' ? b.w : 0,
   h: typeof b.h === 'number' ? b.h : 0,
   images: (Array.isArray(b.images) ? b.images : []).map((im, k) => ({
     id: typeof im.id === 'string' ? im.id : `im${k}`,
     att: typeof im.att === 'string' ? im.att : '',
-    media: typeof im.media === 'string' ? im.media : '',
     w: typeof im.w === 'number' ? im.w : 0,
     h: typeof im.h === 'number' ? im.h : 0,
     text: typeof im.text === 'string' ? im.text : '',
@@ -372,18 +364,6 @@ const mapBlock = (b: WireBlock, i: number) => ({
     description: '',
   })),
   ask: mapAsk(b.ask),
-  diffs: (Array.isArray(b.diffs) ? b.diffs : []).map((d, k) => ({
-    id: typeof d.id === 'string' ? d.id : `f${k}`,
-    path: typeof d.path === 'string' ? d.path : '',
-    added: typeof d.added === 'number' ? d.added : 0,
-    removed: typeof d.removed === 'number' ? d.removed : 0,
-    lines: (Array.isArray(d.lines) ? d.lines : []).map((ln, x) => ({
-      id: typeof ln.id === 'string' ? ln.id : `l${x}`,
-      sign: typeof ln.sign === 'string' ? ln.sign : ' ',
-      text: typeof ln.text === 'string' ? ln.text : '',
-    })),
-  })),
-  diffHidden: typeof b.diffHidden === 'number' ? b.diffHidden : 0,
   nodes: mapNodes(b.nodes),
   grp: typeof b.grp === 'string' ? b.grp : '',
   answer: b.answer === true,
@@ -574,7 +554,6 @@ const mapSnapshot = (body: WireSnapshot) => {
       sessionId: typeof a.sessionId === 'string' ? a.sessionId : '',
       sub: str(a.sub),
       mode: str(a.mode),
-      modeCode: str(a.modeCode),
       activity: str(a.activity),
       state: str(a.state),
       meta: str(a.meta),
@@ -589,7 +568,6 @@ const mapSnapshot = (body: WireSnapshot) => {
     bridgeOpen: body.bridge?.open === true,
     team: (Array.isArray(session?.team) ? session?.team ?? [] : []).map((t, i) => ({
       id: typeof t.id === 'string' ? t.id : `tt${i}`,
-      taskId: typeof t.taskId === 'string' ? t.taskId : '',
       subject: typeof t.subject === 'string' ? t.subject : '',
       status: typeof t.status === 'string' ? t.status : 'pending',
       owner: typeof t.owner === 'string' ? t.owner : '',
@@ -616,7 +594,6 @@ const mapSnapshot = (body: WireSnapshot) => {
       images: (Array.isArray(q.images) ? q.images : []).map((im, k) => ({
         id: typeof im.id === 'string' ? im.id : `qi${k}`,
         att: typeof im.att === 'string' ? im.att : '',
-        media: typeof im.media === 'string' ? im.media : '',
         w: typeof im.w === 'number' ? im.w : 0,
         h: typeof im.h === 'number' ? im.h : 0,
         text: typeof im.text === 'string' ? im.text : '',
@@ -739,12 +716,12 @@ const mapToolView = (v: WireToolView | undefined) => ({
 });
 
 const sources: Sources = {
-  loadCall: async ([server, token, sid, callId, lang]): Promise<Result<'loadCall'>> => {
-    const empty = { callId: String(callId), name: '', title: '', args: '', result: '', view: mapToolView(undefined) };
-    const res = await fetch(`${server}/v1/sessions/${sid}/call?callId=${encodeURIComponent(String(callId))}&lang=${encodeURIComponent(String(lang ?? ''))}&t=${token}`, { exactTimeout: 15000 })
+  loadCall: async ([server, token, sid, callId, lang, seq]): Promise<Result<'loadCall'>> => {
+    const empty = { callId: String(callId), name: '', title: '', args: '', view: mapToolView(undefined) };
+    const res = await fetch(`${server}/v1/sessions/${sid}/call?callId=${encodeURIComponent(String(callId))}&lang=${encodeURIComponent(String(lang ?? ''))}&seq=${Number(seq) || 0}&t=${token}`, { exactTimeout: 15000 })
     if (!res.ok) return empty
-    const body = (await res.json()) as { name?: string; title?: string; args?: string; result?: string; view?: WireToolView }
-    return { callId: String(callId), name: String(body.name ?? ''), title: String(body.title ?? ''), args: String(body.args ?? ''), result: String(body.result ?? ''), view: mapToolView(body.view) }
+    const body = (await res.json()) as { name?: string; title?: string; args?: string; view?: WireToolView }
+    return { callId: String(callId), name: String(body.name ?? ''), title: String(body.title ?? ''), args: String(body.args ?? ''), view: mapToolView(body.view) }
   },
   // The small poll: everything except the transcript rows (the bridge strips them).
   loadLive: async ([server, token, selected, listRev, showArchived, lang]): Promise<Result<'loadLive'>> => {
@@ -779,7 +756,7 @@ const sources: Sources = {
     const res = await call(server as string, token as string, `/v1/transcript${query}`, { exactTimeout: 30000 });
     if (res.status === 401) throw new Error('unauthorized');
     if (!res.ok) throw new Error(await reason(res));
-    const body = (await res.json()) as { rows?: unknown[]; ids?: unknown[]; seq?: unknown; hasMore?: boolean; rowsRev?: string; turns?: unknown[] };
+    const body = (await res.json()) as { rows?: unknown[]; ids?: unknown[]; seq?: unknown; hasMore?: boolean; from?: number; turns?: unknown[] };
     const ids = Array.isArray(body.ids) ? body.ids.map((v) => String(v)) : [];
     const dirty = Array.isArray(body.rows) ? body.rows : [];
     if (!cacheOk) {
@@ -793,7 +770,17 @@ const sources: Sources = {
     const mapped = mapSnapshot({ session: { messages: rows, hasMore: body.hasMore === true } } as WireSnapshot);
     // Every turn number of the session (the turn rail), whole in a patch too.
     const turns = (Array.isArray(body.turns) ? body.turns : []).filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
-    return { rev: String(body.rowsRev ?? ''), hasMore: mapped.hasMore, turns, rows: mapped.messages };
+    return { hasMore: mapped.hasMore, from: Number(body.from) || 0, turns, rows: mapped.messages };
+  },
+  loadOlder: async ([server, token, selected, before, lang]): Promise<Result<'loadOlder'>> => {
+    const cursor = Number(before) || 0;
+    const query = `?session=${encodeURIComponent(selected as string)}&before=${cursor}${typeof lang === 'string' && lang != '' ? `&lang=${encodeURIComponent(lang)}` : ''}`;
+    const res = await call(server as string, token as string, `/v1/transcript${query}`, { exactTimeout: 30000 });
+    if (res.status === 401) throw new Error('unauthorized');
+    if (!res.ok) throw new Error(await reason(res));
+    const body = (await res.json()) as { rows?: unknown[]; hasMore?: boolean; from?: number };
+    const mapped = mapSnapshot({ session: { messages: Array.isArray(body.rows) ? body.rows : [], hasMore: body.hasMore === true } } as WireSnapshot);
+    return { session: String(selected), before: cursor, from: Number(body.from) || 0, hasMore: mapped.hasMore, rows: mapped.messages };
   },
 
   // Several pictures and files from one pick, uploaded in turn: a picture is compressed first (long side 1600px, at most 1.5 MB: a phone photo is
@@ -881,7 +868,7 @@ const sources: Sources = {
 
 
   loadModels: async ([server, token, selected]): Promise<Result<'loadModels'>> => {
-    const empty = { currentModel: '', currentProvider: '', currentEffort: '', models: [] };
+    const empty = { currentEffort: '', models: [] };
     try {
       const res = await call(server as string, token as string, `/v1/sessions/${encodeURIComponent(selected as string)}/models`);
       if (!res.ok) return empty;
@@ -902,8 +889,6 @@ const sources: Sources = {
         }
       }
       return {
-        currentModel: String(body.current?.model ?? ''),
-        currentProvider: String(body.current?.provider ?? ''),
         currentEffort: String(body.current?.effort ?? ''),
         models: rows,
       };
@@ -992,14 +977,13 @@ const sources: Sources = {
     try {
       const res = await call(server as string, token as string, `/v1/sessions/${encodeURIComponent(String(id))}/feedback`);
       if (!res.ok) return { items: [] };
-      const body = (await res.json()) as { items?: { messageId?: string; rating?: string; note?: string; category?: string; version?: string }[] };
+      const body = (await res.json()) as { items?: { messageId?: string; rating?: string; note?: string; version?: string }[] };
       return {
         items: (body.items ?? []).map((it, k) => ({
           id: `fb${k}`,
           messageId: str(it.messageId),
           rating: it.rating === 'negative' ? 'negative' : 'positive',
           note: str(it.note),
-          category: str(it.category),
           version: str(it.version),
         })),
       };
@@ -1027,15 +1011,14 @@ const sources: Sources = {
 
   // File preview (document-preview parity): one workspace file as text or data URL.
   loadFile: async ([server, token, sid, filePath]): Promise<Result<'loadFile'>> => {
-    const empty = { ok: false, kind: '', media: '', name: '', bytes: 0, text: '', url: '' };
+    const empty = { ok: false, kind: '', name: '', bytes: 0, text: '', url: '' };
     try {
       const res = await call(server as string, token as string, `/v1/sessions/${encodeURIComponent(String(sid))}/file?p=${encodeURIComponent(String(filePath))}`);
       if (!res.ok) return empty;
-      const body = (await res.json()) as { ok?: boolean; kind?: string; media?: string; name?: string; bytes?: number; text?: string; url?: string };
+      const body = (await res.json()) as { ok?: boolean; kind?: string; name?: string; bytes?: number; text?: string; url?: string };
       return {
         ok: body.ok !== false,
         kind: String(body.kind ?? ''),
-        media: String(body.media ?? ''),
         name: String(body.name ?? ''),
         bytes: Number(body.bytes ?? 0),
         text: String(body.text ?? ''),

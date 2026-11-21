@@ -44,6 +44,7 @@
   "list.loadEarlier": "载入更早的消息",
   "list.loadFailed": "载入失败 · 重试",
   "list.loading": "正在载入…",
+  "list.beginning": "已到会话的最早位置",
   "list.noMatch": "没有匹配的会话。",
   "list.running": "运行中…",
   "list.scanMac": "扫 Mac 上的码",

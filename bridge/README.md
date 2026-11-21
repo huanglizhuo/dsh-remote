@@ -63,12 +63,12 @@ another site (`Origin` must be loopback or a non-http scheme). The dev routes `/
 
 | Route | Purpose |
 |---|---|
-| `GET /v1/health` | `{ok, name, instanceId, paired, sessions, publicUrl, desktopAttached, api}` — cheap reachability probe; `desktopAttached` says whether a desktop window's mirror (`client.js`) is alive; `api` is the bridge's wire revision (**11**). With a token (or from loopback) it also carries `dsh` (the host's version, read from its package manifest, `""` when unknown) and `caps` — **Version and capabilities** |
+| `GET /v1/health` | `{ok, name, instanceId, paired, sessions, publicUrl, desktopAttached, api}` — cheap reachability probe; `desktopAttached` says whether a desktop window's mirror (`client.js`) is alive; `api` is the bridge's wire revision (**12**). With a token (or from loopback) it also carries `dsh` (the host's version, read from its package manifest, `""` when unknown) and `caps` — **Version and capabilities** |
 | `GET /v1/pairing` / `POST /v1/pairing/refresh` / `GET /v1/pairing.svg` | the pairing view (code, link, token, `desktopAttached`) / issue a new code / the QR as an SVG — the sidebar panel's; loopback only |
 | `GET /v1/devices` / `DELETE /v1/devices/:id` | paired devices / revoke one (above) |
 | `POST /v1/pair {code}` | `{token, instanceId}` |
 | `GET /v1/live?session=<id>&take=&listRev=&lang=` | the small poll: running/queue/approvals/question/todos/jobs/streaming, no message rows, plus `rowsRev`/`listRev`; pass the last `listRev` and the session list is omitted when unchanged (~1.9 KB warm). List rows carry `attention` (below), `unread` and `subs` (**Session list: unread dots and running subagents**), and `listRev` (it starts with the language) changes when any of them does. Top-level `prefs` carries the Mac's presentation settings (**The Mac's presentation settings**); `session.streaming.blocks` and `session.runActivity` carry the live process (**Live process detail and streaming**). `lang` is described under **Language of bridge-worded rows**. Top-level `limits` and the composer's `session` fields (`continueSeq`, `planMode`, `goalInfo`, `context` parts, `queue` rows): **The composer**. Top-level `bridge: {api, open}`: the wire revision and whether the Mac can open files (**Version and capabilities**). `session.subagents` (a tree), `subagentProgress`, `parentTitle`, `agentLabel`, `cwd` and the jobs' `state`: **Subagents, the environment and jobs** |
-| `GET /v1/transcript?session=<id>&take=&since=&lang=` | the message rows; fetch only when `rowsRev` moved (idle sessions stop re-carrying history). `take` (turns) is 4–120. `rowsRev` is `<last event seq>:<take>:<projection version>:<lang>` (projection version **11**); the version moves whenever the row *projection* changes shape and the language is part of it, so clients drop caches keyed by it (the phone keys its transcript cache on everything after the second colon, and on the requested `lang`). Also `turns:[n…]`, every turn number of the session (**The turn rail**). Assistant rows of a turn that changed files carry `changedCount`, `changedFiles`, `changedAdded`, `changedRemoved` and `changesSeq` (**Turn tail: feedback, changed files, open on the Mac**) |
+| `GET /v1/transcript?session=<id>&take=&since=&lang=` | the newest message rows; fetch only when `rowsRev` moved (idle sessions stop re-carrying history). `take` (turns) is 4–120. `rowsRev` is `<last event seq>:<take>:<projection version>:<lang>` (projection version **12**); the version moves whenever the row *projection* changes shape and the language is part of it, so clients drop caches keyed by it (the phone keys its transcript cache on everything after the second colon, and on the requested `lang`). `from` is the oldest returned Turn's start seq while `hasMore` is true. With `before=<from>` instead of `take`/`since`, returns one older page as `{rows, from, hasMore}`; the phone prepends pages without growing `take`. Also `turns:[n…]`, every turn number of the session (**The turn rail**). Assistant rows of a turn that changed files carry `changedCount`, `changedFiles`, `changedAdded`, `changedRemoved` and `changesSeq` (**Turn tail: feedback, changed files, open on the Mac**) |
 | `GET /v1/sessions?lang=` / `POST /v1/sessions {cwd?}` | the session list alone / create a session (`{id}`) |
 | `POST /v1/sessions/:id/{rename {title}, fork {atSeq?}, pin {on?}, archive {on?}}` | rename / fork (`{id}` of the branch) / pin / archive (`on:false` undoes) |
 | `POST /v1/sessions/:id/queue/:itemId[/steer\|/edit {text}]` | the queue dock: remove (default) / steer the item into the running turn / rewrite its text (`updateQueue`) |
@@ -88,7 +88,7 @@ another site (`Origin` must be loopback or a non-http scheme). The dev routes `/
 | `GET /v1/sessions/:id/job?jobId=` | the tail of a background job's output — **Subagents, the environment and jobs** |
 | `GET /v1/schedules?lang=` / `POST /v1/schedules {title, prompt, when}` / `POST /v1/schedules/:id/{edit,run,delete}` | the task manager — **Scheduled tasks** |
 | `GET /` or `GET /pair` | the QR page the Mac shows (loopback only) |
-| `GET /v1/sessions/:id/call?callId=&lang=` | one tool card's full detail: `args` and `result` up to 64 KB each, with `argsChars` / `resultChars` (the untruncated lengths), plus `diffs` (+ `diffHidden`), `todos`, `files`, `question`, `options`, the localized `title` and **`view`**, the card the phone opens (**Tool cards**); `lang` as on `/v1/live` |
+| `GET /v1/sessions/:id/call?callId=&lang=&seq=` | one tool card's full detail: `args` and `result` up to 64 KB each, with `argsChars` / `resultChars` (the untruncated lengths), plus `diffs` (+ `diffHidden`), `todos`, `files`, `question`, `options`, the localized `title` and **`view`**, the card the phone opens (**Tool cards**); `lang` as on `/v1/live`. The row's `seq` lets the bridge rebuild an evicted historical call's page |
 | `POST /v1/approvals/:id {decision:'allow'\|'deny'\|'always'}` | answer an approval card (a tool approval, or a question-intent approval). `always` is **allow once** for a tool approval (there is no persistent tool grant); it is the asker's own `always` option only for a question-intent approval that offers one. Replies after the Mac's UI confirmed it |
 | `POST /v1/questions/:id/answer {answers:[{id,selected,custom?}]}` | answer a question or plan review (one item per question; a missing one is a skip: `selected:[]`, no `custom`) |
 | `POST /v1/questions/:id/dismiss` (alias `/skip`) | close the card: cancel the whole set (`ASK_CANCELLED`; for a plan review this is 要求修改) or, for a timed question, only collapse it |
@@ -110,9 +110,9 @@ Rows follow the official ui-chat conversation nodes (`conversation-nodes/{messag
 
 ### Turns, steering and the active turn
 
-- A phone "turn" opens with a **user** row (a human message) or a **trigger** row (the notification that woke it: a goal round, a schedule, a subagent settling…). The turn rail counts exactly those, load-earlier counts segments of them, and `took` runs from the opener of the same turn.
+- A phone "turn" is bounded by the host's `turn/start`; its opening row is a **user** row (a human message) or a **trigger** row (the notification that woke it: a goal round, a schedule, a subagent settling…). The turn rail maps chips to those rows, history pages split only at Turn starts, and `took` runs from the opener of the same turn.
 - **Steering is not a turn.** The bridge replays the `agent/inbox/spliced` splices (a claim = a splice that removes messages, outcome not `canceled`). A human `user/message` whose id is in the current **next-step** claim is steering; one claimed at Step 1 is an *idle steer* and is the turn's own opening user row. A steering message becomes a block `{kind:'steer', text, summary:'插话'|'Steer', images}` of the turn's assistant row, in order between the steps; it never starts a segment and never splits the assistant group. A steering message with no assistant row before it in its turn opens that group (row id `s<seq>`) and later steps merge into it. The group row's `seq` advances with every block it takes, so `since=` patches carry it.
-- A window whose head is a steering message (its claim cut off) would read as an opener; when older history exists the head segment is dropped, so a turn's row ids stay stable as `take` grows.
+- A read that begins inside a Turn drops that partial head when a complete Turn follows it, so pages do not duplicate a Turn's rows and row ids stay stable as `take` grows.
 - The assistant row of the turn that has **no `turn/end` yet** carries `active: true`; the phone expands that row alone while the session runs (a new turn's first poll never opens the previous turn's row).
 - `failed: true` marks the assistant rows of a turn that ended with `reason.kind:'error'`; `interrupted: true` those of a turn that ended `aborted` or `interrupted` (the phone reads 已停止 / Stopped).
 - When a turn ends, every assistant row of it takes the `turn/end` seq as its `seq` (the control, the usage and the fold flags below appear then, so a phone holding the open row must get the closed one in its `since=` patch). It is also the seq the phone's 从这里分叉 sends, which is where the official branch action cuts.
@@ -240,7 +240,7 @@ Create / edit take the timing as a structure, never JSON: `when:{mode, date?, ti
 
 ## Version and capabilities
 
-`BRIDGE_API` (**11**) is the bridge's wire revision: a change the phone depends on moves it. `/v1/health` carries it as `api` (public) and, with a token, `dsh` and `caps`; `/v1/live` carries `bridge:{api, open}`. The phone shows a hint when the bridge it reaches sends no revision or an older one than it needs ("reload the plugin on the Mac"). `caps` is what *this process can actually do now*: `open` (the controller's `canOpenWorkspacePath()`), `feedback` (`messageFeedback.put`), `schedules` (`schedule.list`), `changes` (`workspaceChanges.diff`), `readMarks` (the host's `sessionStatus` records), `subagentSend` (`subagents.prompt`), `jobOutput` (`jobs.readAt`), `files` (`fileUploads.uploadStream`), `commands` (`commands.execute`), `settings` (`settings.describe`). Every feature that needs a host service or projection checks for it and degrades to "not offered" (a 409 with a reason, or the older fallback), so a host older or leaner than rc.3 never makes the bridge throw. `dsh` comes from `pluginPackages.packageOf('@deepseek-ai/dsh-app-boot', import.meta.url).version` (then the session controller's package) — `""` when the service cannot say; it is informational only, nothing branches on it.
+`BRIDGE_API` (**12**) is the bridge's wire revision: a change the phone depends on moves it. `/v1/health` carries it as `api` (public) and, with a token, `dsh` and `caps`; `/v1/live` carries `bridge:{api, open}`. The phone shows a hint when the bridge it reaches sends no revision or an older one than it needs ("reload the plugin on the Mac"). `caps` is what *this process can actually do now*: `open` (the controller's `canOpenWorkspacePath()`), `feedback` (`messageFeedback.put`), `schedules` (`schedule.list`), `changes` (`workspaceChanges.diff`), `readMarks` (the host's `sessionStatus` records), `subagentSend` (`subagents.prompt`), `jobOutput` (`jobs.readAt`), `files` (`fileUploads.uploadStream`), `commands` (`commands.execute`), `settings` (`settings.describe`). Every feature that needs a host service or projection checks for it and degrades to "not offered" (a 409 with a reason, or the older fallback), so a host older or leaner than rc.3 never makes the bridge throw. `dsh` comes from `pluginPackages.packageOf('@deepseek-ai/dsh-app-boot', import.meta.url).version` (then the session controller's package) — `""` when the service cannot say; it is informational only, nothing branches on it.
 
 ## Push notifications
 
@@ -369,7 +369,7 @@ An `ask_user_question` tool block carries `ask: {state, answered, total, answera
 
 ## Paging is by turns
 
-`take` on `GET /v1/transcript` (and `/v1/live`) counts **turns**, not messages. A turn can carry 20–40 step messages, so a message window made "load earlier" add one row and look broken. The bridge asks for `N*96+40` messages (at most 6000), merges steps into turns, then keeps the newest `N` and reports `hasMore` when older turns were dropped.
+`take` on `GET /v1/transcript` (and `/v1/live`) counts **turns**, not messages. A turn can carry 20–40 step messages, so a message window made "load earlier" add one row and look broken. The bridge asks for `N*96+40` messages (at most 6000), merges steps into turns, then keeps the newest `N` and reports `hasMore` when older turns were dropped. A history request uses `before=<seq>` and a Turn-aware read instead: at least four Turns and 80 messages (bounded by 6000), then whole slim Turns up to 400 KB. The app accepts only a `from` that moves strictly backward and keeps the pages, so the fixed budgets no longer limit how far back it can scroll.
 
 ## Payload size
 
@@ -414,8 +414,6 @@ Access (or Tailscale) removes both limits, and only the base URL changes.
   inside a running turn; the phone answers it through the normal card.
 - Session list has create/rename/fork; no delete yet.
 - No push notification when a turn ends or an approval is asked: see **Push notifications** (what is missing, exactly).
-- A window holds the newest `take` turns (at most 6000 records); older history is paged by raising `take` (up to 120) or read raw through
-  `GET /v1/sessions/:id/events`.
 
 ## Steering and permissions
 
@@ -522,8 +520,7 @@ Each row in `GET /v1/sessions` and in `snapshot.sessions` carries display fields
 ## Paging the transcript
 
 `GET /v1/transcript?session=<id>&take=<n>&since=<seq>` — `take` counts **turns** (default 8, 4–120); `since` returns only rows with `seq > since` plus the full id order (incremental refresh).
-The response sets `session.hasMore` when the session has older messages than the window, which the app shows as
-a "Load earlier messages" row at the top of the transcript; tapping it raises `take` by 8 (up to 120) and re-fetches.
+The response sets `hasMore` when the session has older messages than the window and `from` to the next page's Turn-start cursor. `GET /v1/transcript?session=<id>&before=<from>` returns one older page; the app prepends it by stable row id and leaves `take` unchanged. An empty page, a cursor that does not move backward, or `hasMore:false` ends automatic loading; a failed page can be retried at the same cursor.
 
 ## What the snapshot carries per tool call
 
@@ -569,7 +566,7 @@ The snapshot is polled every 700 ms (2.8 s when idle), so it is budgeted, not co
 - the newest rows are *whole* while they fit 150 KB, at most 12 of them (the newest row always is); older rows are *slim*: a turn's final answer keeps whole nodes up to ~6000 characters, its other replies a few slimmed nodes, reasoning 240 characters, `fullText` (what copy and find read) 6000 characters, so a long session still shows its history;
 - a whole row over 96 KB gives up detail in this order: reasoning, then tool cards and groups (the answer blocks stay), then — past 1.5× that size — the colours of its code blocks. The answer's text is never what a row gives up;
 - tool cards keep `lazy: true` and ship no `args`/`result`; tapping one calls `GET /v1/sessions/<id>/call?callId=<id>&lang=`, which returns `{callId, name, title, args, argsChars, result, resultChars, diffs, diffHidden, todos, files, question, options, view}` from that session's call index (the tool blocks of every window computed for it; `args` / `result` up to 64 KB, the `*Chars` are the real lengths);
-- a 240 KB ceiling trims the oldest rows and sets `hasMore`.
+- a 240 KB ceiling trims whole Turns from the newest window and sets `hasMore`/`from`; each `before=` history page has its own 400 KB budget, so trimming a page does not prevent fetching the next one.
 
 ### Tool cards
 

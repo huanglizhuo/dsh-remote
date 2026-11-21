@@ -1,0 +1,71 @@
+test "earlier messages page by cursor until the beginning" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Long chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Long chat","model":"m","permission":"default","rowsRev":"6:8:12:en","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":false}}
+  answer fetch "http://bridge.test/v1/transcript?session=sA&take=8&lang=en" with 200 {"rowsRev":"6:8:12:en","hasMore":true,"from":5,"seq":6,"turns":[1,2,3,4,5,6],"ids":["u5","u6"],"rows":[{"id":"u5","role":"user","seq":5,"turn":5,"text":"request five\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"u6","role":"user","seq":6,"turn":6,"text":"request six\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]}]}
+  answer fetch "http://bridge.test/v1/transcript?session=sA&before=5&lang=en" with 200 {"hasMore":true,"from":3,"rows":[{"id":"u3","role":"user","seq":3,"turn":3,"text":"request three","blocks":[]},{"id":"u4","role":"user","seq":4,"turn":4,"text":"request four","blocks":[]}]}
+  answer fetch "http://bridge.test/v1/transcript?session=sA&before=3&lang=en" with 200 {"hasMore":true,"from":1,"rows":[{"id":"u1","role":"user","seq":1,"turn":1,"text":"request one","blocks":[]},{"id":"u2","role":"user","seq":2,"turn":2,"text":"request two","blocks":[]}]}
+  answer fetch "http://bridge.test/v1/transcript?session=sA&before=1&lang=en" with 200 {"hasMore":true,"from":1,"rows":[]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  expect state msgs.length == 2
+  expect state historyCursor == 5
+  tap "transcript" drag 0 3000
+  clock data
+  clock settle
+  expect state moreSid == "sA"
+  expect state olderReply.before == 5
+  expect state msgs.length == 4
+  expect state loadingMore == false
+  tap "load-earlier"
+  clock data
+  clock settle
+  expect state msgs.length == 6
+  expect state loadingMore == false
+  tap "load-earlier"
+  clock data
+  clock settle
+  expect state msgs.length == 6
+  expect state loadingMore == false
+  expect text "more-beginning" == "Beginning of conversation"
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back
+
+test "an earlier-page failure ends loading and retries the same cursor" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Long chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Long chat","model":"m","permission":"default","rowsRev":"6:8:12:en","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":false}}
+  answer fetch "http://bridge.test/v1/transcript?session=sA&take=8&lang=en" with 200 {"rowsRev":"6:8:12:en","hasMore":true,"from":5,"seq":6,"turns":[5,6],"ids":["u5","u6"],"rows":[{"id":"u5","role":"user","seq":5,"turn":5,"text":"request five\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]},{"id":"u6","role":"user","seq":6,"turn":6,"text":"request six\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8\n\n9\n\n10\n\n11\n\n12","blocks":[]}]}
+  answer fetch "http://bridge.test/v1/transcript?session=sA&before=5&lang=en" with 500 {"error":"offline"}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  tap "transcript" drag 0 3000
+  clock data
+  clock settle
+  expect state loadingMore == false
+  expect tree has "more-retry"
+  answer fetch "http://bridge.test/v1/transcript?session=sA&before=5&lang=en" with 200 {"hasMore":false,"from":0,"rows":[{"id":"u3","role":"user","seq":3,"turn":3,"text":"request three","blocks":[]},{"id":"u4","role":"user","seq":4,"turn":4,"text":"request four","blocks":[]}]}
+  tap "more-retry"
+  clock data
+  clock settle
+  expect state msgs.length == 4
+  expect state loadingMore == false
+  expect state moreErr == ""
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back

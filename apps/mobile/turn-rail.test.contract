@@ -1,0 +1,29 @@
+test "opening a chat brings its current turn into the overflowing rail" on web
+  locale "en"
+  answer fetch "http://bridge.test/v1/live" with 200 {"listRev":"r1","sessions":[{"id":"sA","title":"Long chat","cwd":"/work","updatedAt":1,"group":"work","first":true,"when":"now"}],"session":{"id":"sA","title":"Long chat","model":"m","permission":"default","rowsRev":"60:8:12:en","messages":[],"queue":[]},"prefs":{},"limits":{},"bridge":{"api":12,"open":false}}
+  answer fetch "http://bridge.test/v1/transcript" with 200 {"rowsRev":"60:8:12:en","hasMore":false,"from":0,"seq":60,"turns":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],"ids":["u59","a60"],"rows":[{"id":"u59","role":"user","seq":59,"turn":30,"text":"latest request","blocks":[]},{"id":"a60","role":"assistant","seq":60,"turn":30,"msgId":"m60","text":"latest reply","state":"done","blocks":[{"id":"b60","kind":"md","text":"latest reply","nodes":[{"id":"n60","t":"p","v":"latest reply"}]}]}]}
+  tap "settings"
+  type "server" "http://bridge.test"
+  type "token" "t"
+  back
+  clock data
+  tap "session-sA"
+  clock data
+  clock data
+  clock + 800
+  clock data
+  clock settle
+  expect state curTurn == 30
+  expect state pinned == "sA"
+  expect tree has "jump-latest"
+  expect layout "turn-rail" height == 44
+  expect state railSynced == 30
+  expect state railLeft >= 1
+  tap "jump-latest"
+  clock settle
+  expect tree has "jump-latest"
+  back
+  clock data
+  tap "settings"
+  type "token" ""
+  back

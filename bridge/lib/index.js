@@ -298,6 +298,40 @@ const FULL = Symbol('full')
 const FULL_CAP = 65536
 // The turn a tool block belongs to, for the per-turn changes route (a symbol like FULL: spread keeps it, JSON never ships it).
 const TURN = Symbol('turn')
+// The seq of the event a row was rendered from. A row's `seq` moves on as it takes later steps and results; this one never does.
+const FIRST_SEQ = Symbol('first')
+const firstSeqOf = (row) => row[FIRST_SEQ] ?? Number(row.seq)
+
+/**
+ * Split rows (in event order) at the host's Turn boundaries: a row joins the Turn whose `turn/start` seq is the last one at or
+ * before its first event. Rows before the first start form a head segment with `start: null`. An out-of-order row (an orphan
+ * call appended at the end) stays in the segment it follows, so the order of rows never changes.
+ */
+export const turnSegments = (rows, starts, firstOf = firstSeqOf) => {
+  const segs = []
+  let k = -1
+  for (const row of rows) {
+    const first = firstOf(row)
+    while (k + 1 < starts.length && starts[k + 1] <= first) k += 1
+    const start = k >= 0 ? starts[k] : null
+    const last = segs[segs.length - 1]
+    if (last && last.start === start) last.rows.push(row)
+    else segs.push({ start, rows: [row] })
+  }
+  return segs
+}
+
+/** The index of the oldest segment kept when the newest ones are kept while their sizes fit `budget`; the newest always stays. */
+export const fitSegments = (sizes, budget) => {
+  let total = 0
+  let from = sizes.length
+  for (let i = sizes.length - 1; i >= 0; i -= 1) {
+    if (total + sizes[i] > budget && from < sizes.length) break
+    total += sizes[i]
+    from = i
+  }
+  return from
+}
 // How much of a job's output the phone reads (its tail), and how long a file's changes page may grow.
 const JOB_TAIL_BYTES = 40_000
 const JOB_TAIL_CHARS = 24_000
@@ -3097,7 +3131,7 @@ export function apply(ctx, config = {}) {
   // own version (rc.3 vs rc.4 differ in what they serve) is read from its package manifest when the package service can say, and the
   // capabilities are what this process can actually do right now: every feature that needs a host service or projection checks for it,
   // so an older or leaner host degrades to "not offered" instead of throwing.
-  const BRIDGE_API = 11
+  const BRIDGE_API = 12
   let dshVersionCache = null
   const dshVersion = () => {
     if (dshVersionCache !== null) return dshVersionCache
@@ -3691,6 +3725,10 @@ export function apply(ctx, config = {}) {
     const type = ev?.type
     const d = ev?.data ?? {}
     const lang = st.lang
+    // Only an append-surface message is a transcript row: a compaction's replacement (`surfaceOp: {op: 'replace'}`, the shorter
+    // copy of an older result the model reads from then on) is model-only, as DSH's own pager counts it. Its turn and step are
+    // the replaced message's, so it must not move the coordinates either.
+    if ((type === 'assistant/message' || type === 'tool/result') && ev.surfaceOp !== undefined && ev.surfaceOp !== 'append') return null
     // Coordinates every event feeds: the turn and step it belongs to, and what closes a skill batch.
     if (Number.isInteger(d.turn)) { st.turn = d.turn; st.lastTurn = Math.max(st.lastTurn ?? 0, d.turn) }
     if (Number.isInteger(d.step)) st.step = d.step
@@ -3920,6 +3958,10 @@ export function apply(ctx, config = {}) {
   // A fat turn is 30+ tool calls ≈ 90 records (call+result+step text). Undershooting
   // here starves the take-window AND flips hasMore while history remains.
   const MESSAGES_PER_TURN = 96
+  // A history page: at least 4 Turns and 80 user/assistant messages (whichever ends further back), whole Turns of slim rows within
+  // the budget. Each page is read once (the phone keeps it), so it can be deeper than the window's 240 000 characters.
+  const HISTORY_PAGE = { maxMessages: 6000, turnWindow: { minMessages: 80, minTurns: 4 }, budget: 400000 }
+  const WINDOW_BUDGET = 240000
   
 // A single long turn can carry megabytes of Markdown; the phone re-reads this
 // payload every few seconds, so each row is clipped to something a 700 ms poll
@@ -3944,18 +3986,6 @@ const rememberCalls = (sessionId, calls) => {
   callIndexes.delete(sessionId)
   callIndexes.set(sessionId, mine)
   while (callIndexes.size > CALL_INDEX_SESSIONS) callIndexes.delete(callIndexes.keys().next().value)
-}
-
-const budget = (rows, maxChars) => {
-  let total = 0
-  let start = rows.length
-  while (start > 0) {
-    const size = JSON.stringify(rows[start - 1]).length
-    if (total + size > maxChars && start < rows.length) break
-    total += size
-    start -= 1
-  }
-  return { rows: rows.slice(start) }
 }
 
 // A turn of 40 steps is 40+ reasoning blocks and tool cards plus the groups around them. Past this many blocks a row keeps every
@@ -4213,10 +4243,17 @@ const assembleTurns = (rows, scan, lang) => {
 // The heavy half of a snapshot: the event log (and the session-level projections) folded into
 // phone rows. It is a pure function of the log, so projectSession caches it per (session, take)
 // and only runs it again when the session's last event seq moves.
-const computeProjection = async (sessionId, take, cwd, address, lang) => {
+const computeProjection = async (sessionId, take, cwd, address, lang, before = null) => {
     const signal = () => new AbortController().signal
+    const history = before !== null
+    // Both reads stop at a host Turn start (`turnWindow`), so a page boundary never cuts a Turn: the window is the newest `take`
+    // Turns, a history page the Turns before `before` (a Turn start seq the phone got as `from`). `maxMessages` still bounds
+    // the read; a window it cuts mid-Turn drops that partial Turn below.
+    const request = history
+      ? { address, beforeSeq: before, maxMessages: HISTORY_PAGE.maxMessages, turnWindow: HISTORY_PAGE.turnWindow }
+      : { address, maxMessages: Math.min(take * MESSAGES_PER_TURN + 40, 6000), turnWindow: { minMessages: 1, minTurns: take } }
     const [page, pv] = await Promise.all([
-      sc().events({ address, maxMessages: Math.min(take * MESSAGES_PER_TURN + 40, 6000) }, signal()).catch(() => null),
+      sc().events(request, signal()).catch(() => null),
       readProjections(sessionId),
     ])
     const messages = []
@@ -4238,7 +4275,7 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
         if (ev.type === 'tool-workflow/run-start') {
           const block = { kind: 'tool', callId: `wf-${runId}`, name: 'workflow', label: copy(lang, 'workflow.label', { name: truncate(String(d.name ?? 'workflow'), 60) }), status: 'running', todos: [] }
           wfRuns.set(runId, { block })
-          messages.push({ id: `wf-${runId}`, seq: Number(ev.seq ?? 0), role: 'assistant', at: ev.time, turn: d.turn ?? null, text: '', usage: '', tokens: null, blocks: [block] })
+          messages.push({ id: `wf-${runId}`, seq: Number(ev.seq ?? 0), [FIRST_SEQ]: Number(ev.seq ?? 0), role: 'assistant', at: ev.time, turn: d.turn ?? null, text: '', usage: '', tokens: null, blocks: [block] })
         } else {
           const run = wfRuns.get(runId)
           if (!run) continue
@@ -4258,7 +4295,10 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
         continue
       }
       const row = renderEvent(rec?.event, scan)
-      if (row) messages.push(row)
+      if (row) {
+        row[FIRST_SEQ] ??= Number(rec.event.seq)
+        messages.push(row)
+      }
     }
     finishRetries(scan)
     // Fold tool results into the call they answer, the way the desktop transcript does.
@@ -4320,7 +4360,7 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
           continue
         }
         if (m.role === 'steer') {
-          grouped.push({ id: `s${m.seq}`, seq: m.seq, role: 'assistant', at: m.at, turn: m.turn, text: '', tokens: null, blocks: [block] })
+          grouped.push({ id: `s${m.seq}`, seq: m.seq, [FIRST_SEQ]: firstSeqOf(m), role: 'assistant', at: m.at, turn: m.turn, text: '', tokens: null, blocks: [block] })
           continue
         }
       }
@@ -4387,22 +4427,22 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
         }
       }
     }
-    // A "turn" for the phone is everything from one user message to the next: a
-    // session's turns run 20–40 step messages each, so trimming by message count made
-    // "load earlier" add a row or two. Keep the newest `take` of these segments.
+    // A "turn" for the phone is one host Turn: its rows from its `turn/start` to the next one. The window keeps the newest
+    // `take` of them and a history page holds whole ones, and a Turn's start seq is the boundary the phone pages by, so every
+    // row is in exactly one page however the window moves. Steering stays inside its Turn (it is a block of the Turn's row).
     // A turn opens with a user's message or with the trigger that woke it (a goal round, a schedule…); steering never opens one.
     const opens = (m) => m.role === 'user' || m.role === 'trigger'
-    const segments = []
-    for (const m of grouped) {
-      if (segments.length === 0 || opens(m)) segments.push([])
-      segments[segments.length - 1].push(m)
-    }
-    // The message window can start mid-turn; drop that partial segment so a turn's
-    // row id stays the same when the window grows (the phone anchors on it). A window with older events behind it may
-    // begin at a steering message whose claim is out of sight, which would read as an opener: drop that head too.
-    if (segments.length > 0 && (!opens(segments[0][0]) || (page?.hasMore && segments.length > 1))) segments.shift()
-    const trimmedAny = segments.length > take
-    const merged = segments.slice(Math.max(0, segments.length - take)).flat()
+    const starts = (page?.records ?? []).filter((r) => r?.event?.type === 'turn/start').map((r) => Number(r.event.seq))
+    const segments = turnSegments(grouped, starts)
+    // Rows before the first Turn start are the head of the log, or the tail of a Turn the read cut when older events exist:
+    // that partial Turn goes, unless it is all the read holds (a single Turn longer than the read keeps its newest part).
+    const headCut = segments.length > 1 && segments[0].start === null && Boolean(page?.hasMore)
+    if (headCut) segments.shift()
+    const kept = history ? segments : segments.slice(Math.max(0, segments.length - take))
+    const trimmedAny = headCut || kept.length < segments.length
+    const merged = kept.flatMap((s) => s.rows)
+    // Where a kept segment begins as a page boundary: its Turn start, else the read's own cut (a partial Turn) or the log's start.
+    const firstRecordSeq = Number(page?.records?.[0]?.event?.seq ?? 0)
     // Process groups, the turn control, the answer and the usage of every turn in the window (see assembleTurns).
     const tail = assembleTurns(merged, scan, lang)
     // The phone cannot carry a whole turn of 40 steps every 700 ms: keep the newest
@@ -4414,7 +4454,7 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
     // Projection version: bumped whenever the row PROJECTION changes shape (not just
     // new events). Clients cache rows keyed by rowsRev; a seq-only rev cannot express
     // "same seq, better content", so old caches would survive a fix like this.
-    const PROJ = 11
+    const PROJ = 12
     // Newest turns: the final answer's markdown is never dropped — degrade detail
     // (reasoning → tool cards), never the answer itself, and only past this cap.
     const ANSWER_CAP = 96000
@@ -4429,10 +4469,11 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
     })) : nodes)
     // The newest rows are whole (their answers complete) while they fit FULL_BUDGET, at most FULL_ROWS of them (the newest is always whole);
     // older rows are slim, so a long session still shows its history inside the row budget instead of only its last few answers.
+    // A history page is all older rows: every one of them is slim.
     const fulls = merged.map((row) => clipRow(row))
     let fullBudget = FULL_BUDGET
     let fullFrom = merged.length
-    for (let i = merged.length - 1; i >= 0 && merged.length - i <= FULL_ROWS; i -= 1) {
+    for (let i = merged.length - 1; !history && i >= 0 && merged.length - i <= FULL_ROWS; i -= 1) {
       const size = JSON.stringify(fulls[i]).length
       if (size > fullBudget && i < merged.length - 1) break
       fullBudget -= size
@@ -4626,7 +4667,20 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
     // Rows leave only on a rev change and arrive as tiny incremental patches
     // afterwards, so the one-shot cold window can afford real depth (newest turns
     // alone can legitimately be ~30 KB each now that answers are never degraded).
-    const phoneRows = budget(annotated, 240000)
+    // Whole Turns only, the newest that fit (the newest always stays): what is left out begins at a Turn start, `from`,
+    // which the phone pages from. `annotated` is `merged` row for row.
+    const segSizes = []
+    let segAt = 0
+    for (const s of kept) {
+      let size = 0
+      for (let i = 0; i < s.rows.length; i += 1) size += JSON.stringify(annotated[segAt + i]).length
+      segSizes.push(size)
+      segAt += s.rows.length
+    }
+    const keepFrom = fitSegments(segSizes, history ? HISTORY_PAGE.budget : WINDOW_BUDGET)
+    const phoneRows = { rows: annotated.slice(kept.slice(0, keepFrom).reduce((n, s) => n + s.rows.length, 0)) }
+    const hasMore = Boolean(page?.hasMore) || trimmedAny || keepFrom > 0
+    const from = !hasMore ? 0 : kept[keepFrom]?.start ?? (page?.hasMore ? firstRecordSeq : 0)
 
     // Session-wide counters for the stats sheet (desktop StatsPills). The whole-log projections
     // when the host serves them (the window is paged and compaction rewrites it); the loaded
@@ -4684,7 +4738,9 @@ const computeProjection = async (sessionId, take, cwd, address, lang) => {
       rows: phoneRows.rows,
       // Live polls strip the rows; this revision tells the phone when to fetch them.
       rowsRev: `${lastEventSeq}:${take}:${PROJ}:${lang}`,
-      hasMore: Boolean(page?.hasMore) || trimmedAny || phoneRows.rows.length < merged.length,
+      hasMore,
+      // The seq the oldest row's Turn begins at: the next history page is the Turns before it (`before=from`).
+      from,
       todos: todoBlocks.length > 0 ? todoBlocks[todoBlocks.length - 1].todos : [],
       inherited,
       stats,
@@ -4750,6 +4806,31 @@ const projectSession = (sessionId, take, cwd, address, logEnd, lang) => {
   projectionCache.delete(key)
   projectionCache.set(key, entry)
   while (projectionCache.size > PROJECTION_CACHE_MAX) projectionCache.delete(projectionCache.keys().next().value)
+  return entry.promise
+}
+
+// A history page: the Turns before `before`, projected as the window is (slim rows). The events before a Turn start never change,
+// so an entry is good until the calendar day moves (row day labels). Its calls go to the call index once; the entry keeps only
+// what the route answers. Bounded; the oldest entries go first.
+const historyCache = new Map()
+const HISTORY_CACHE_MAX = 24
+const projectHistory = (sessionId, before, cwd, address, lang) => {
+  const key = `${sessionId}:${before}:${lang}`
+  const day = new Date().toDateString()
+  const hit = historyCache.get(key)
+  if (hit && hit.day === day) return hit.promise
+  const entry = { day, promise: null }
+  entry.promise = computeProjection(sessionId, 0, cwd, address, lang, before).then((heavy) => {
+    if (!heavy.ok && historyCache.get(key) === entry) historyCache.delete(key)
+    rememberCalls(sessionId, heavy.callIndex)
+    return { ok: heavy.ok, rows: heavy.rows, from: heavy.from, hasMore: heavy.hasMore }
+  }, (err) => {
+    if (historyCache.get(key) === entry) historyCache.delete(key)
+    throw err
+  })
+  historyCache.delete(key)
+  historyCache.set(key, entry)
+  while (historyCache.size > HISTORY_CACHE_MAX) historyCache.delete(historyCache.keys().next().value)
   return entry.promise
 }
 
@@ -4891,6 +4972,24 @@ const subagentProgress = (lang, rows) => {
 
 // One snapshot = the cached projection + the parts that move without a new event (state, queue,
 // streaming, approvals, question, jobs, the run clock).
+// A subagent child is read through its parent's address; the plain session address is refused.
+const addressOf = (row, sessionId) => (row?.origin === 'subagent' && row.parentId
+  ? { kind: 'subagent', parentSessionId: row.parentId, childSessionId: sessionId, mode: 'unknown' }
+  : { kind: 'session', sessionId })
+
+// One history page for the phone (GET /v1/transcript?before=): the Turns before `before`. A page whose Turns show no row reads on
+// (each read ends further back), so a page the phone asks for adds rows unless the log has none left.
+const historyPage = async (sessionId, before, lang) => {
+  const meta = (await mergeStatus(false, lang)).find(sessionId)
+  const address = addressOf(meta?.meta ?? null, sessionId)
+  let page = await projectHistory(sessionId, before, meta?.cwd ?? null, address, lang)
+  for (let i = 0, at = before; i < 8 && page.ok && page.rows.length === 0 && page.hasMore && page.from > 0 && page.from < at; i += 1) {
+    at = page.from
+    page = await projectHistory(sessionId, at, meta?.cwd ?? null, address, lang)
+  }
+  return page
+}
+
 const snapshotSession = async (sessionId, take = 8, showArchived = false, lang = 'zh-Hans') => {
     const listing = await mergeStatus(showArchived, lang, sessionId) // the only sc().list() of the request
     const meta = sessionId ? listing.find(sessionId) : null
@@ -4905,10 +5004,7 @@ const snapshotSession = async (sessionId, take = 8, showArchived = false, lang =
     if (!sessionId) return out
     const row = meta?.meta ?? null
     const pv = row?.projections ?? {}
-    // A subagent child is read through its parent's address; the plain session address is refused.
-    const address = row?.origin === 'subagent' && row.parentId
-      ? { kind: 'subagent', parentSessionId: row.parentId, childSessionId: sessionId, mode: 'unknown' }
-      : { kind: 'session', sessionId }
+    const address = addressOf(row, sessionId)
     // The state call is cheap (the log end is in memory for a live session) and says whether the
     // cached projection is still current.
     const state = await sc().state({ sessionId }, new AbortController().signal).catch(() => null)
@@ -5000,6 +5096,7 @@ const snapshotSession = async (sessionId, take = 8, showArchived = false, lang =
       permission: meta?.permission ?? '',
       permissionOptions: permissionCatalog(ctx),
       hasMore: heavy.hasMore,
+      from: heavy.from,
       plan: meta?.plan ?? null,
       goal: gi ? gi.objective : (meta?.goal ?? null),
       goalId: gi ? gi.id : (meta?.goalId ?? null),
@@ -5770,6 +5867,14 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         const showArchived = url.searchParams.get('archived') === 'show'
         // The language bridge-worded rows read in (the phone's effective locale): zh-Hans (default) or en.
         const lang = langOf(url.searchParams.get('lang'))
+        // A history page: the Turns before `before` (the `from` of the window or of the page before), read once by the phone.
+        if (url.pathname === '/v1/transcript' && url.searchParams.has('before')) {
+          const before = Number(url.searchParams.get('before'))
+          if (!sessionId || !Number.isSafeInteger(before) || before <= 0) return json(res, 400, { error: 'bad before' })
+          const page = await historyPage(sessionId, before, lang)
+          if (!page.ok) return json(res, 502, { error: 'history unavailable' })
+          return json(res, 200, { rows: page.rows, from: page.from, hasMore: page.hasMore })
+        }
         const snapshot = await snapshotSession(sessionId, take, showArchived, lang)
         if (url.pathname === '/v1/transcript') {
           const rowsOut = snapshot.session?.messages ?? []
@@ -5782,6 +5887,7 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
               return json(res, 200, {
                 rowsRev: snapshot.session?.rowsRev ?? '',
                 hasMore: snapshot.session?.hasMore ?? false,
+                from: snapshot.session?.from ?? 0,
                 seq: cursor,
                 turns: snapshot.session?.turns ?? [],
                 ids: rowsOut.map((r) => r.id),
@@ -5792,6 +5898,7 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
           return json(res, 200, {
             rowsRev: snapshot.session?.rowsRev ?? '',
             hasMore: snapshot.session?.hasMore ?? false,
+            from: snapshot.session?.from ?? 0,
             seq: cursor,
             turns: snapshot.session?.turns ?? [],
             ids: rowsOut.map((r) => r.id),
@@ -5815,10 +5922,20 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
       // (terminal / read / search / web / diff / image / details / input-output) built here, in the phone's `lang`.
       if (parts[0] === 'v1' && parts[1] === 'sessions' && parts[2] && parts[3] === 'call' && req.method === 'GET') {
         const callId = url.searchParams.get('callId') ?? ''
-        const block = callIndexes.get(decodeURIComponent(parts[2]))?.get(callId)
+        const sid = decodeURIComponent(parts[2])
+        const lang = langOf(url.searchParams.get('lang'))
+        let block = callIndexes.get(sid)?.get(callId)
+        // A call on an older page that the index let go (it keeps the newest calls): read that page again. `seq` is the seq of the
+        // call's row, which the events of the call's Turn reach.
+        const hint = Number(url.searchParams.get('seq'))
+        if (!block && Number.isSafeInteger(hint) && hint > 0) {
+          const meta = (await mergeStatus(false, lang)).find(sid)
+          const heavy = await computeProjection(sid, 0, meta?.cwd ?? null, addressOf(meta?.meta ?? null, sid), lang, hint + 1).catch(() => null)
+          if (heavy?.callIndex) rememberCalls(sid, heavy.callIndex)
+          block = callIndexes.get(sid)?.get(callId)
+        }
         if (!block) return json(res, 404, { error: 'unknown call' })
         const full = block[FULL] ?? {}
-        const lang = langOf(url.searchParams.get('lang'))
         let diffs = []
         let more = 0
         try { diffs = Array.isArray(block.diff) ? diffFiles(block.diff).map((f) => ({ ...f, lines: f.lines.map((l) => ({ ...l, text: maskSecrets(l.text) })) })) : []; more = Array.isArray(block.diff) ? diffHidden(block.diff) : 0 } catch { /* the card still opens */ }
