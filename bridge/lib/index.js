@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { AttemptBuffers, PairingChallenge, TunnelController } from './state-machines.js'
 
 export const name = 'dsh-remote'
 
@@ -2473,55 +2474,20 @@ export function apply(ctx, config = {}) {
   if (Array.isArray(saved.tokens)) saved.tokens = saved.tokens.map((e) => (typeof e === 'string' ? { t: e, name: 'device', at: 0 } : e))
 
   const state = {
-    pairing: null, // { code, expiresAt, attempts }
     tokens: Array.isArray(saved.tokens) ? saved.tokens : saved.token ? [saved.token] : [],
     instanceId: crypto.randomBytes(6).toString('hex'),
   }
-
+  const pairing = new PairingChallenge({
+    randomCode: () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0'),
+  })
   const issuePairingCode = () => {
-    state.pairing = {
-      code: String(crypto.randomInt(0, 1_000_000)).padStart(6, '0'),
-      expiresAt: Date.now() + 5 * 60_000,
-      attempts: 0,
-    }
-    log('pairing code:', state.pairing.code, '(5 min)')
-    return state.pairing
+    const current = pairing.refresh()
+    log('pairing code:', current.code, '(5 min)')
+    return current
   }
 
-  /**
-   * The public address. Quick Tunnels cost nothing and need no account, but the
-   * hostname changes on every start — so the bridge owns the process and reads
-   * the URL out of its log instead of asking the person to copy it.
-   */
-  const tunnel = { url: '', proc: null, stopped: false }
-  const startTunnel = () => {
-    if (tunnel.stopped || tunnel.proc || config.tunnel === false) return
-    let child
-    try {
-      child = spawn('cloudflared', ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    } catch (err) {
-      log('no cloudflared, staying local:', String(err))
-      return
-    }
-    tunnel.proc = child
-    const read = (buf) => {
-      const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)
-      if (m && m[0] !== tunnel.url) {
-        tunnel.url = m[0]
-        log('tunnel:', tunnel.url)
-      }
-    }
-    child.stdout.on('data', read)
-    child.stderr.on('data', read)
-    child.on('error', (err) => { log('tunnel failed:', String(err)); tunnel.proc = null })
-    child.on('exit', (code) => {
-      tunnel.proc = null
-      tunnel.url = ''
-      if (tunnel.stopped) return
-      log('tunnel exited', code, '- retrying in 5s')
-      setTimeout(startTunnel, 5000).unref?.()
-    })
-  }
+  const tunnel = new TunnelController({ port, enabled: config.tunnel !== false, spawn, log })
+  const startTunnel = () => tunnel.start()
 
   /** Feed: one global cursor across every session, so a single poll covers all. */
   let eid = 0
@@ -2546,7 +2512,7 @@ export function apply(ctx, config = {}) {
   }
 
   /** Per-attempt live buffers, so the phone can render streaming text before it settles. */
-  const live = new Map() // attemptId -> { sessionId, blocks: [{index, type, text}], startedAt, turn, step }
+  const live = new AttemptBuffers()
 
   const agentStatus = () => {
     const out = new Map()
@@ -2564,45 +2530,13 @@ export function apply(ctx, config = {}) {
     'agent/assistant-stream',
     ({ agent, frame }) => {
       const sessionId = agent?.session?.id ?? null
-      if (!frame) return
-      if (frame.type === 'start') {
-        live.set(frame.attemptId, { sessionId, blocks: [], startedAt: Date.now(), turn: frame.turn, step: frame.step, revision: frame.revision })
+      const transition = live.accept(sessionId, frame)
+      if (transition === 'start') {
         touchSession(sessionId, { status: 'running' })
         pushFeed(sessionId, 'live/start', { attemptId: frame.attemptId, turn: frame.turn, step: frame.step })
-        return
-      }
-      if (frame.type === 'chunk') {
-        const buf = live.get(frame.attemptId)
-        const c = frame.chunk
-        if (buf && c) {
-          const i = typeof c.index === 'number' ? c.index : 0
-          if (c.type === 'text-delta' || c.type === 'reasoning-delta') {
-            const kind = c.type === 'text-delta' ? 'text' : 'reasoning'
-            let block = buf.blocks.find((b) => b.index === i)
-            if (!block) {
-              block = { index: i, type: kind, text: '' }
-              buf.blocks.push(block)
-            }
-            block.text += c.text ?? ''
-          } else if (c.type === 'tool-call-delta') {
-            let block = buf.blocks.find((b) => b.index === i)
-            if (!block) {
-              block = { index: i, type: 'tool-call', name: c.name ?? '', arguments: '' }
-              buf.blocks.push(block)
-            }
-            if (c.name && !block.name) block.name = c.name
-            block.arguments += c.argumentsDelta ?? ''
-          } else if (c.type === 'block-end') {
-            const block = buf.blocks.find((b) => b.index === i)
-            if (block && c.block) block.done = true
-          }
-        }
+      } else if (transition === 'chunk') {
         pushFeed(sessionId, 'live/chunk', { attemptId: frame.attemptId, index: frame.index })
-        return
-      }
-      if (frame.type === 'end') {
-        const buf = live.get(frame.attemptId)
-        live.delete(frame.attemptId)
+      } else if (transition === 'end') {
         touchSession(sessionId, { status: 'idle' })
         pushFeed(sessionId, 'live/end', { attemptId: frame.attemptId, outcome: frame.outcome })
       }
@@ -2622,7 +2556,6 @@ export function apply(ctx, config = {}) {
     { global: true },
   )
 
-  const pairFails = new Map() // ip -> { first, n }
   // Platform wallet balance for the main screen; refreshed at most every 5 minutes.
   const balanceCache = { at: 0, data: null, busy: false }
   const refreshBalance = () => {
@@ -5009,10 +4942,7 @@ const snapshotSession = async (sessionId, take = 8, showArchived = false, lang =
     // cached projection is still current.
     const state = await sc().state({ sessionId }, new AbortController().signal).catch(() => null)
     const heavy = await projectSession(sessionId, take, meta?.cwd ?? null, address, state?.cursor, lang)
-    let attempt = null
-    for (const item of live.values()) {
-      if (item.sessionId === sessionId && (attempt === null || item.startedAt > attempt.startedAt)) attempt = item
-    }
+    const attempt = live.latest(sessionId)
     // The attempt that is streaming right now, as blocks that continue the open turn's groups (see streamView).
     let streaming = null
     let streamLive
@@ -5462,7 +5392,7 @@ const snapshotSession = async (sessionId, take = 8, showArchived = false, lang =
       token: state.tokens.length > 0 ? state.tokens[state.tokens.length - 1].t : null,
       paired: state.tokens.length > 0,
       instanceId: state.instanceId,
-      tunnelRunning: Boolean(tunnel.proc && !tunnel.stopped),
+      tunnelRunning: tunnel.running,
       // Is the desktop renderer's half (client.js) attached? Then approvals / questions are the Mac's own cards, mirrored.
       desktopAttached: desktopAttached(),
     }
@@ -5494,7 +5424,7 @@ const snapshotSession = async (sessionId, take = 8, showArchived = false, lang =
         if (!isLoopback(req)) {
           return json(res, 403, { error: 'loopback_only' })
         }
-        const p = state.pairing && state.pairing.expiresAt > Date.now() ? state.pairing : issuePairingCode()
+        const p = pairing.current()
         const mins = Math.max(1, Math.round((p.expiresAt - Date.now()) / 60000))
         const payload = `dshm://pair?u=${encodeURIComponent(tunnel.url || '')}&d=${encodeURIComponent(tailscaleIp ? `http://${tailscaleIp}:${port}` : '')}&c=${p.code}`
         let svg = ''
@@ -5529,7 +5459,7 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         if (!isLoopback(req)) {
           return json(res, 403, { error: 'loopback_only' })
         }
-        const p = state.pairing && state.pairing.expiresAt > Date.now() ? state.pairing : issuePairingCode()
+        const p = pairing.current()
         return json(res, 200, pairingView(p))
       }
 
@@ -5548,7 +5478,7 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
         if (!isLoopback(req)) {
           return json(res, 403, { error: 'loopback_only' })
         }
-        const p = state.pairing && state.pairing.expiresAt > Date.now() ? state.pairing : issuePairingCode()
+        const p = pairing.current()
         let svg = ''
         try {
           svg = qrSvg(pairingView(p).deepLink, 5, 3)
@@ -5565,26 +5495,16 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
 
       if (url.pathname === '/v1/pair' && req.method === 'POST') {
         const body = await readBody(req)
-        const p = state.pairing
-        // Per-IP throttle: 8 bad codes in 15 minutes locks that address out.
         const ip = req.socket.remoteAddress ?? '?'
+        const verdict = pairing.verify(ip, body.code)
+        if (!verdict.ok) return json(res, verdict.status, {
+          error: verdict.error,
+          ...(verdict.attemptsLeft === undefined ? {} : { attemptsLeft: verdict.attemptsLeft }),
+        })
         const now = Date.now()
-        const bucket = pairFails.get(ip)
-        if (bucket && now - bucket.first < 900000 && bucket.n >= 8) return json(res, 429, { error: 'ip_blocked' })
-        if (!p || p.expiresAt < now) return json(res, 410, { error: 'code_expired' })
-        if (p.attempts >= 3) return json(res, 429, { error: 'too_many_attempts' })
-        if (String(body.code ?? '') !== p.code) {
-          p.attempts += 1
-          const b = bucket && now - bucket.first < 900000 ? bucket : { first: now, n: 0 }
-          b.n += 1
-          pairFails.set(ip, b)
-          return json(res, 401, { error: 'bad_code', attemptsLeft: Math.max(0, 3 - p.attempts) })
-        }
         const token = crypto.randomBytes(32).toString('hex')
         const name = String(body.name ?? 'device').slice(0, 40)
         state.tokens = [...state.tokens.slice(-5), { t: token, name, at: now }]
-        state.pairing = null
-        pairFails.delete(ip)
         saveState({ tokens: state.tokens })
         log(`paired with a device: ${name}`)
         return json(res, 200, { token, instanceId: state.instanceId })
@@ -6485,8 +6405,7 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
 
       if (parts[0] === 'v1' && parts[1] === 'sessions' && parts[3] === 'live' && req.method === 'GET') {
         const id = decodeURIComponent(parts[2])
-        const out = []
-        for (const [attemptId, buf] of live) if (buf.sessionId === id) out.push({ attemptId, ...buf })
+        const out = live.entries(id).map(([attemptId, buf]) => ({ attemptId, ...buf }))
         return json(res, 200, { sessionId: id, attempts: out })
       }
 
@@ -6647,8 +6566,7 @@ code{font-size:40px;letter-spacing:10px;font-variant-numeric:tabular-nums;displa
     // A held request must not outlive the plugin: fail it closed the way the host would without an answerer.
     for (const it of [...held.values()]) { try { it.drop() } catch {} }
     for (const id of [...desktop.keys()]) dropDesktop(id)
-    tunnel.stopped = true
-    try { tunnel.proc?.kill() } catch {}
+    tunnel.stop()
     for (const fn of listeners) listeners.delete(fn)
     try {
       // A phone polling every 700 ms keeps connections alive; close() alone waits for

@@ -8,6 +8,7 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
+    "lib/state-machines.js",
     "cordis.patch.yml"
   ],
   "dsh": {

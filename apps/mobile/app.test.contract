@@ -1,6 +1,7 @@
 test "it opens on the session list"
   expect tree has "app"
   expect tree has "scan-now"
+  expect state connectionState == "signed-out"
 
 test "settings keeps where the Mac lives"
   tap "settings"
@@ -29,6 +30,9 @@ test "the composer shows 继续生成, the plan chip, the goal strip, the meter 
   type "token" "t"
   back
   clock data
+  clock + 800
+  clock data
+  expect state connectionState == "online"
   tap "session-sA"
   clock data
   clock data

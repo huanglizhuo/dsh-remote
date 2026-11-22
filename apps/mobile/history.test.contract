@@ -15,6 +15,7 @@ test "earlier messages page by cursor until the beginning" on web
   clock data
   expect state msgs.length == 2
   expect state historyCursor == 5
+  expect state historyState == "ready"
   tap "transcript" drag 0 3000
   clock data
   clock settle
@@ -32,6 +33,7 @@ test "earlier messages page by cursor until the beginning" on web
   clock settle
   expect state msgs.length == 6
   expect state loadingMore == false
+  expect state historyState == "end"
   expect text "more-beginning" == "Beginning of conversation"
   back
   clock data
@@ -55,7 +57,9 @@ test "an earlier-page failure ends loading and retries the same cursor" on web
   tap "transcript" drag 0 3000
   clock data
   clock settle
+  expect refusal "more"
   expect state loadingMore == false
+  expect state historyState == "error"
   expect tree has "more-retry"
   answer fetch "http://bridge.test/v1/transcript?session=sA&before=5&lang=en" with 200 {"hasMore":false,"from":0,"rows":[{"id":"u3","role":"user","seq":3,"turn":3,"text":"request three","blocks":[]},{"id":"u4","role":"user","seq":4,"turn":4,"text":"request four","blocks":[]}]}
   tap "more-retry"
@@ -64,6 +68,7 @@ test "an earlier-page failure ends loading and retries the same cursor" on web
   expect state msgs.length == 4
   expect state loadingMore == false
   expect state moreErr == ""
+  expect state historyState == "end"
   back
   clock data
   tap "settings"

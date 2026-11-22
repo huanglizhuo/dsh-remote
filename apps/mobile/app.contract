@@ -747,6 +747,7 @@ routes nav
     settings "/settings"
     scan "/scan"
     open "/open"
+  notfound
 
 component Mobile
   state server = "http://127.0.0.1:8787" persist
@@ -855,6 +856,7 @@ component Mobile
   derive historyCursor = olderLoaded ? olderFrom : rows.from
   derive loadingMore = moreSid == selected and pending(more)
   derive moreErr = moreSid == selected ? (match failure(more) { case some(f) => f.message, case none => "" }) : ""
+  derive historyState = loadingMore ? "loading" : moreErr != "" ? "error" : rowsMore ? "ready" : "end"
   derive olderReply = match more { case some(p) => p, case none => History(session="", before=0, from=0, hasMore=false, rows=[]) }
   derive turnList = selected == "" ? [] : rows.turns
   resource view = exactViewport() as shape Viewport
@@ -1014,6 +1016,7 @@ component Mobile
   // A 401 from the bridge: the stored pairing token was dropped on the Mac side
   // (state reset or revocation). Only a re-scan fixes it — the network is fine.
   derive authStale = match failure(live) { case some(f) => f.message == "unauthorized", case none => false }
+  derive connectionState = not signedIn ? "signed-out" : authStale ? "unauthorized" : linkStale ? "offline" : everOk ? "online" : "connecting"
   derive createdId = match created { case some(r) => r.id, case none => "" }
   derive forkedId = match forked { case some(r) => r.id, case none => "" }
   derive forkedHereId = match forkedHere { case some(r) => r.id, case none => "" }
@@ -1034,6 +1037,7 @@ component Mobile
   derive fileIds = selAtts.filter(a => a.kind == "file").map(a => a.id).join(",")
   derive composerEmpty = draft.trim() == "" and not hasAtt
   derive canSend = not composerEmpty and not pending(sent) and not pending(uploaded) and selected != ""
+  derive pollActivity = snap.running or snap.streamBlocks.length > 0 or snap.approvals.length > 0 or snap.question != none or jumpWant != 0
   // The primary button (InputBar): stop while a turn runs and nothing is typed, 继续生成 after a continuable failure, else send. A subagent
   // keeps Send primary (its Stop is the header's).
   derive primaryMode = (snap.running and composerEmpty) ? "stop" : (not snap.running and snap.continueSeq >= 0 and composerEmpty and snap.queue.length == 0 ? "continue" : "send")
@@ -1180,7 +1184,7 @@ component Mobile
     // Hot (a turn running or streaming, something waiting on the person, or just after a
     // send or command): refresh on every 700 ms tick. Idle: on every fourth, ~2.8 s: a phone
     // on LTE does not need to re-read the same list three times a second.
-    let hot = snap.running or snap.streamBlocks.length > 0 or snap.approvals.length > 0 or snap.question != none or performanceNow() < hotUntil or jumpWant != 0
+    let hot = pollActivity or performanceNow() < hotUntil
     let due = (hot or idlePolls == 0) and not pending(live)
     idlePolls = (hot or idlePolls >= 3) ? 0 : idlePolls + 1
     // A failure counts once per refresh actually made: a skipped tick leaves the count alone,
@@ -1327,7 +1331,7 @@ component Mobile
       nav = back(nav)
   action editRename(v: string)
     renameDraft = v
-  action open(id: string)
+  action resetTranscript
     take = 8
     stick = true
     older = []
@@ -1336,6 +1340,7 @@ component Mobile
     olderMore = false
     moreSid = ""
     anchorKey = ""
+    anchorPending = 0
     topKey = ""
     topOffset = 0.0
     loadedCount = 0
@@ -1349,6 +1354,9 @@ component Mobile
     openGroups = []
     turnPicks = []
     jumpWant = 0
+    jumpTries = 0
+  action open(id: string)
+    resetTranscript()
     nav = push(nav, path("chat", id))
   action openChild(id: string)
     if id != ""
@@ -1879,7 +1887,7 @@ component Mobile
         if e.name == "sessions"
           column navigationKey=`${e.id}` navigationScroll="sessions-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
             row display="flex" flex-wrap="wrap" align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
-              text "deepseek" role="heading" aria-level=1 flex=1 testId="app-title"
+              text "deepseek" role="heading" aria-level=1 font-size="min(-exact-headline, 32px)" flex="1 1 12rem" min-width=0 testId="app-title"
               if signedIn
                 button press=openScan aria-label="Scan a pairing code" testId="scan-now"
                   image "symbol:photo"
@@ -1914,7 +1922,7 @@ component Mobile
               row gap=8 align-items="flex-start" padding="8px 16px" background-color="surface.card" testId="bridge-old"
                 image "symbol:alert" font-size="0.7rem" color="-exact-system-orange"
                 text t("bridge.old") font-size="0.72rem" color="-exact-secondary-label" flex=1 min-width=0
-            if signedIn and not everOk and not linkStale and not authStale
+            if connectionState == "connecting"
               column padding=24 gap=10 align-items="center" testId="connecting"
                 image "assets/whale.svg" width=44 height=44 color="brand.fill"
                 text t("pair.connecting") font="-exact-subheadline" color="-exact-secondary-label"
@@ -1929,15 +1937,15 @@ component Mobile
                   text t("ws.default") flex=1 min-width=0 font-size="0.75rem"
                 row press=cancelNew justify-content="center" padding="6px 0" testId="ws-cancel"
                   text t("common.cancel") font-size="0.75rem" color="-exact-secondary-label"
-            if authStale
+            if connectionState == "unauthorized"
               // The Mac no longer knows this phone's token (bridge state reset or
               // revoked): the list would sit frozen on stale rows — say so and re-pair.
               column padding=16 gap=10 align-items="center" background-color="surface.card"
-                image "symbol:alert" width=28 height=28 color="brand.fill"
+                image "symbol:alert" font-size="1.75rem" color="brand.fill"
                 text t("pair.expired") font="-exact-subheadline" color="-exact-secondary-label" text-align="center" testId="auth-stale"
                 button press=openScan buttonStyle="filled" testId="repair-scan"
                   text t("pair.repair")
-            if linkStale
+            if connectionState == "offline"
               column padding=16 gap=10 align-items="center" background-color="surface.card"
                 text t("pair.unreachable") font="-exact-footnote" color="-exact-secondary-label" text-align="center" testId="stale-note"
                 row gap=10
@@ -1992,16 +2000,16 @@ component Mobile
                 text (snap.parentTitle != "" ? snap.parentTitle : t("subagent.parent")) font-size="0.69rem" color="brand.fill" line-clamp=1 testId="breadcrumb-parent"
                 image "symbol:forward-chevron" font-size="0.5rem" color="-exact-tertiary-label"
                 text (snap.agentLabel != "" ? snap.agentLabel : snap.sessionTitle) font-size="0.69rem" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0 testId="breadcrumb-agent"
-            if (nearTop and (rowsMore or olderLoaded)) or loadingMore or moreErr != ""
+            if (nearTop and (historyState == "ready" or olderLoaded)) or historyState == "loading" or historyState == "error"
               row justify-content="center" align-items="center" height=36 background-color="surface.page"
-                if loadingMore
+                if historyState == "loading"
                   text t("list.loading") font-size="0.8rem" color="-exact-secondary-label" testId="more-loading"
                 else
-                  if moreErr != ""
+                  if historyState == "error"
                     button press=loadEarlier buttonStyle="bordered" testId="more-retry"
                       text t("list.loadFailed")
                   else
-                    if rowsMore
+                    if historyState == "ready"
                       button press=loadEarlier buttonStyle="bordered" testId="load-earlier"
                         text t("list.loadEarlier")
                     else
@@ -2944,12 +2952,24 @@ component Mobile
                 text t("open.retry") font-size="0.94rem" font-weight=600 color="ink.on-brand"
               row press=toSettings padding="12px 20px" min-height=44 testId="open-manual"
                 text t("open.manual") font-size="0.87rem" color="-exact-secondary-label"
-        if e.name == "settings"
-          column navigationKey=`${e.id}` navigationScroll="settings-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
-            row align-items="center" padding="8px 16px" gap=8 background-color="surface.page"
+        if e.name == "notfound"
+          column navigationKey=`${e.id}` navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" testId="not-found"
+            row align-items="center" flex-wrap="wrap" padding="8px 16px" gap=8
               button press=leave aria-label="Back" testId="back"
                 image "symbol:back"
-              text t("pair.connect") role="heading" aria-level=1 flex=1
+              text t("notfound.title") role="heading" aria-level=1 font-size="min(-exact-headline, 32px)" flex="1 1 12rem" min-width=0
+            column flex=1 min-height=0 align-items="center" justify-content="center" gap=12 padding="48px 24px"
+              image "symbol:alert" font-size="2rem" color="-exact-secondary-label" aria-hidden=true
+              text t("notfound.heading") font="-exact-title3" text-align="center" testId="not-found-title"
+              text t("notfound.message", url=e.url) width="100%" color="-exact-secondary-label" text-align="center" white-space="pre-wrap" overflow-wrap="break-word" testId="not-found-message"
+              row press=goHome padding="12px 24px" border-radius=12 background-color="brand.fill" margin-top=8 testId="not-found-home"
+                text t("notfound.home") font-size="0.94rem" font-weight=600 color="ink.on-brand"
+        if e.name == "settings"
+          column navigationKey=`${e.id}` navigationScroll="settings-list" navigationBar="none" position="absolute" inset=0 display="flex" flex-direction="column"
+            row align-items="center" flex-wrap="wrap" padding="8px 16px" gap=8 background-color="surface.page"
+              button press=leave aria-label="Back" testId="back"
+                image "symbol:back"
+              text t("pair.connect") role="heading" aria-level=1 flex="1 1 12rem" min-width=0 line-clamp=1
             list id="settings-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               if devices.devices.length > 0
                 section
@@ -2985,7 +3005,7 @@ component Mobile
               section
                 row gap=8 align-items="center"
                   text t("settings.showArchived") flex=1
-                  input type="checkbox" switch checked=showArchived change=setShowArchived testId="archived-toggle"
+                  input type="checkbox" switch checked=showArchived change=setShowArchived aria-label=t("settings.showArchived") testId="archived-toggle"
               section
                 column gap=2
                   row press=setLang("") gap=8 align-items="center" min-height=44 testId="lang-system"

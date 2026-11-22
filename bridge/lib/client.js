@@ -420,16 +420,42 @@ window.__ModuleLoader__.load({
       try { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)) } catch { return undefined }
     }
 
+    function createLatestSender(send, canSend) {
+      let phase = 'idle'
+      let queued = null
+      let lastSig = ''
+      const transmit = (items, sig) => {
+        phase = 'sending'
+        lastSig = sig
+        send(items)
+          .then((res) => { if (!res.ok) lastSig = '' })
+          .catch(() => { lastSig = '' })
+          .finally(() => {
+            phase = 'idle'
+            const next = queued
+            queued = null
+            if (next && canSend()) transmit(next.items, next.sig)
+          })
+      }
+      return {
+        push(items, sig, force) {
+          if (!force && sig === lastSig) return
+          if (phase === 'sending') {
+            queued = { items, sig }
+            return
+          }
+          transmit(items, sig)
+        },
+      }
+    }
+
     function startMirror(scope) {
       const clientId = newId()
       const pendingSource = scope.uiSession.pendingInteractions
       const watched = new Map() // pending object -> unsubscribe (a question card reports its own state changes)
       const applied = new Map() // command id -> result, so a re-delivered command is answered, never applied twice
       let alive = true
-      let inflight = false
-      let again = false
       let dirty = false
-      let lastSig = ''
       let aborter = new AbortController()
 
       const current = () => {
@@ -466,22 +492,13 @@ window.__ModuleLoader__.load({
 
       // One state POST in flight at a time, always carrying the newest state: a late arrival of an older one
       // would otherwise overwrite it on the bridge.
+      const sender = createLatestSender((items) => post('/v1/desktop/state', { client: clientId, items }), () => alive)
       const push = (force) => {
         if (!alive) return
         const items = current().map(summarize)
         // The countdown ticks every second; only its shape (running / held / continued) is news.
         const sig = JSON.stringify(items.map((it) => ({ ...it, card: it.card ? { ...it.card, countdown: it.card.countdown ? { running: it.card.countdown.running } : null } : null })))
-        if (!force && sig === lastSig) return
-        if (inflight) { again = true; return }
-        inflight = true
-        lastSig = sig
-        post('/v1/desktop/state', { client: clientId, items })
-          .then((res) => { if (!res.ok) lastSig = '' })
-          .catch(() => { lastSig = '' }) // bridge away: the heartbeat (or the poll reconnecting) sends it again
-          .finally(() => {
-            inflight = false
-            if (again) { again = false; push(true) }
-          })
+        sender.push(items, sig, force)
       }
 
       // Coalesce a burst of changes into one push, without a timer (a hidden window throttles timers, not microtasks).
@@ -571,13 +588,14 @@ window.__ModuleLoader__.load({
       // Commands apply in order on a side queue, so a slow one never keeps the next poll (the liveness signal) from opening.
       let queue = Promise.resolve()
       const pollLoop = async () => {
+        let phase = 'connected'
         let backoff = 1000
-        let wasDown = false
         while (alive) {
           try {
             const res = await fetch(`${BASE}/v1/desktop/commands?client=${encodeURIComponent(clientId)}&wait=${POLL_WAIT_MS}`, { cache: 'no-store', signal: aborter.signal })
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            if (wasDown) { wasDown = false; push(true) }
+            if (phase === 'backoff') push(true)
+            phase = 'connected'
             backoff = 1000
             const body = await res.json()
             for (const cmd of Array.isArray(body.commands) ? body.commands : []) {
@@ -585,7 +603,7 @@ window.__ModuleLoader__.load({
             }
           } catch {
             if (!alive) return
-            wasDown = true
+            phase = 'backoff'
             await sleep(backoff)
             backoff = Math.min(backoff * 2, 15000)
           }
